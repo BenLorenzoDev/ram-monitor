@@ -7,6 +7,23 @@
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 Add-Type -MemberDefinition '[DllImport("psapi.dll")] public static extern bool EmptyWorkingSet(IntPtr hProcess);' -Name 'Psapi' -Namespace 'Win32'
+Add-Type -ReferencedAssemblies System.Windows.Forms -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
+public class RamHotKey : NativeWindow, IDisposable {
+    [DllImport("user32.dll")] static extern bool RegisterHotKey(IntPtr hWnd, int id, int mods, int vk);
+    [DllImport("user32.dll")] static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+    public event EventHandler Pressed;
+    public RamHotKey() { CreateHandle(new CreateParams()); }
+    public bool Register(int mods, int vk) { return RegisterHotKey(this.Handle, 1, mods, vk); }
+    protected override void WndProc(ref Message m) {
+        if (m.Msg == 0x0312) { var h = Pressed; if (h != null) h(this, EventArgs.Empty); }
+        base.WndProc(ref m);
+    }
+    public void Dispose() { UnregisterHotKey(this.Handle, 1); this.DestroyHandle(); }
+}
+'@
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
 $script:LogDir   = Join-Path $env:USERPROFILE 'ram-monitor'
@@ -21,6 +38,9 @@ $script:History   = @()   # rolling per-process memory snapshots for spike auto-
 $script:GraphHist   = @() # 1-second usage samples for the graph
 $script:GraphWinSec = 60  # graph window: 60 / 300 / 600 seconds
 $script:LastMem     = $null
+$script:LastAutoOpt      = [datetime]::MinValue
+$script:AutoOptStrikes   = 0
+$script:AutoOptSuspended = $false
 
 # Optimize exceptions: process names the user has protected (ticked in the list)
 $script:OptCsv     = Join-Path $script:LogDir 'optimize-history.csv'
@@ -171,7 +191,7 @@ function Style-DarkButton($b, [bool]$accent = $false) {
 
 $form = New-Object System.Windows.Forms.Form
 $form.Text            = 'RAM Monitor'
-$form.Size            = New-Object System.Drawing.Size(560, 900)
+$form.Size            = New-Object System.Drawing.Size(560, 940)
 $form.StartPosition   = 'CenterScreen'
 $form.FormBorderStyle = 'FixedSingle'
 $form.MaximizeBox     = $false
@@ -257,8 +277,37 @@ $btnOpenLogs.Location = New-Object System.Drawing.Point(426, 224)
 $btnOpenLogs.Size     = New-Object System.Drawing.Size(98, 28)
 $btnOpenLogs.Text     = 'Open logs'
 
+$chkAuto = New-Object System.Windows.Forms.CheckBox
+$chkAuto.Location  = New-Object System.Drawing.Point(20, 258)
+$chkAuto.Size      = New-Object System.Drawing.Size(126, 22)
+$chkAuto.ForeColor = $cText
+$chkAuto.Text      = 'Auto-optimize at'
+$chkAuto.Checked   = $false
+
+$numAuto = New-Object System.Windows.Forms.NumericUpDown
+$numAuto.Location  = New-Object System.Drawing.Point(148, 256)
+$numAuto.Size      = New-Object System.Drawing.Size(52, 24)
+$numAuto.Minimum   = 50
+$numAuto.Maximum   = 99
+$numAuto.Value     = 80
+$numAuto.BackColor = $cCard
+$numAuto.ForeColor = $cText
+
+$lblAutoPct = New-Object System.Windows.Forms.Label
+$lblAutoPct.Location  = New-Object System.Drawing.Point(202, 260)
+$lblAutoPct.Size      = New-Object System.Drawing.Size(18, 20)
+$lblAutoPct.ForeColor = $cText
+$lblAutoPct.Text      = '%'
+
+$lblAutoInfo = New-Object System.Windows.Forms.Label
+$lblAutoInfo.Location  = New-Object System.Drawing.Point(226, 260)
+$lblAutoInfo.Size      = New-Object System.Drawing.Size(298, 20)
+$lblAutoInfo.Font      = New-Object System.Drawing.Font('Segoe UI', 8)
+$lblAutoInfo.ForeColor = $cSub
+$lblAutoInfo.Text      = '10 min cooldown; suspends itself if it stops helping'
+
 $lv = New-Object System.Windows.Forms.ListView
-$lv.Location      = New-Object System.Drawing.Point(20, 262)
+$lv.Location      = New-Object System.Drawing.Point(20, 296)
 $lv.Size          = New-Object System.Drawing.Size(504, 280)
 $lv.View          = 'Details'
 $lv.FullRowSelect = $true
@@ -290,17 +339,17 @@ $lv.Add_DrawItem({ param($s, $e) $e.DrawDefault = $true })
 $lv.Add_DrawSubItem({ param($s, $e) $e.DrawDefault = $true })
 
 $btnKill = New-Object System.Windows.Forms.Button
-$btnKill.Location = New-Object System.Drawing.Point(20, 550)
+$btnKill.Location = New-Object System.Drawing.Point(20, 584)
 $btnKill.Size     = New-Object System.Drawing.Size(170, 30)
 $btnKill.Text     = 'End selected process'
 
 $btnTaskMgr = New-Object System.Windows.Forms.Button
-$btnTaskMgr.Location = New-Object System.Drawing.Point(198, 550)
+$btnTaskMgr.Location = New-Object System.Drawing.Point(198, 584)
 $btnTaskMgr.Size     = New-Object System.Drawing.Size(150, 30)
 $btnTaskMgr.Text     = 'Open Task Manager'
 
 $btnOptimize = New-Object System.Windows.Forms.Button
-$btnOptimize.Location = New-Object System.Drawing.Point(356, 550)
+$btnOptimize.Location = New-Object System.Drawing.Point(356, 584)
 $btnOptimize.Size     = New-Object System.Drawing.Size(168, 30)
 $btnOptimize.Font     = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)
 $btnOptimize.Text     = 'Optimize RAM'
@@ -312,14 +361,14 @@ Style-DarkButton $btnTaskMgr
 Style-DarkButton $btnOptimize $true
 
 $lblSug = New-Object System.Windows.Forms.Label
-$lblSug.Location  = New-Object System.Drawing.Point(20, 590)
+$lblSug.Location  = New-Object System.Drawing.Point(20, 624)
 $lblSug.Size      = New-Object System.Drawing.Size(250, 18)
 $lblSug.Font      = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)
 $lblSug.ForeColor = $cText
 $lblSug.Text      = 'Suggested actions'
 
 $txtSuggest = New-Object System.Windows.Forms.TextBox
-$txtSuggest.Location    = New-Object System.Drawing.Point(20, 610)
+$txtSuggest.Location    = New-Object System.Drawing.Point(20, 644)
 $txtSuggest.Size        = New-Object System.Drawing.Size(504, 105)
 $txtSuggest.Multiline   = $true
 $txtSuggest.ReadOnly    = $true
@@ -330,14 +379,14 @@ $txtSuggest.ForeColor   = $cText
 $txtSuggest.BorderStyle = 'FixedSingle'
 
 $lblEv = New-Object System.Windows.Forms.Label
-$lblEv.Location  = New-Object System.Drawing.Point(20, 723)
+$lblEv.Location  = New-Object System.Drawing.Point(20, 757)
 $lblEv.Size      = New-Object System.Drawing.Size(250, 18)
 $lblEv.Font      = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)
 $lblEv.ForeColor = $cText
 $lblEv.Text      = 'Alerts and events'
 
 $txtEvents = New-Object System.Windows.Forms.TextBox
-$txtEvents.Location    = New-Object System.Drawing.Point(20, 743)
+$txtEvents.Location    = New-Object System.Drawing.Point(20, 777)
 $txtEvents.Size        = New-Object System.Drawing.Size(504, 82)
 $txtEvents.Multiline   = $true
 $txtEvents.ReadOnly    = $true
@@ -348,15 +397,16 @@ $txtEvents.ForeColor   = $cText
 $txtEvents.BorderStyle = 'FixedSingle'
 
 $lblStatus = New-Object System.Windows.Forms.Label
-$lblStatus.Location  = New-Object System.Drawing.Point(20, 831)
+$lblStatus.Location  = New-Object System.Drawing.Point(20, 865)
 $lblStatus.Size      = New-Object System.Drawing.Size(504, 16)
 $lblStatus.ForeColor = [System.Drawing.Color]::FromArgb(140, 140, 150)
-$lblStatus.Text      = 'Tick a process = protected from Optimize  |  closing (X) returns to the widget'
+$lblStatus.Text      = 'Tick = protected from Optimize  |  Ctrl+Alt+O = optimize anywhere  |  X returns to widget'
 
 $form.Controls.AddRange(@(
     $lblPct, $lblDetail, $lblGraphCap, $cboWin, $pnlGraph,
     $lblThr, $numThreshold, $lblPctSign,
-    $chkLog, $btnSnapshot, $btnOpenLogs, $lv,
+    $chkLog, $btnSnapshot, $btnOpenLogs,
+    $chkAuto, $numAuto, $lblAutoPct, $lblAutoInfo, $lv,
     $btnKill, $btnTaskMgr, $btnOptimize,
     $lblSug, $txtSuggest, $lblEv, $txtEvents, $lblStatus
 ))
@@ -474,6 +524,43 @@ function Update-Fast {
             else                                  { [System.Drawing.Color]::FromArgb(30, 30, 32) }
         $pnlGraph.Invalidate()
         $wSpark.Invalidate()
+
+        # Auto-optimize: hands-free trim with cooldown and self-suspend guard
+        if ($chkAuto.Checked -and -not $script:AutoOptSuspended -and
+            $mem.Pct -ge [int]$numAuto.Value -and
+            ((Get-Date) - $script:LastAutoOpt).TotalMinutes -ge 10) {
+            $now = Get-Date
+            if (($now - $script:LastAutoOpt).TotalMinutes -le 20) { $script:AutoOptStrikes++ }
+            else { $script:AutoOptStrikes = 0 }
+            if ($script:AutoOptStrikes -ge 2) {
+                # Two trims in a row brought no lasting relief: stop and diagnose
+                $script:AutoOptSuspended = $true
+                $suspect = ''
+                try {
+                    $a = Get-SpikeAnalysis $mem (Get-TopProcesses)
+                    if ($a -and $a.TopGainer) { $suspect = " Likely leak: $($a.TopGainer)." }
+                } catch {}
+                $txtEvents.AppendText("[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] AUTO-optimize suspended - trims are not lasting.$suspect Restart that app, then re-tick Auto-optimize.`r`n")
+                $notify.BalloonTipTitle = 'RAM Monitor'
+                $notify.BalloonTipText  = "Auto-optimize suspended - it is not helping.$suspect Restart that app."
+                $notify.ShowBalloonTip(10000)
+            } else {
+                $script:LastAutoOpt = $now
+                $txtEvents.AppendText("[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] AUTO-optimize triggered at $($mem.Pct)% (limit $([int]$numAuto.Value)%)`r`n")
+                Do-Optimize -Auto
+            }
+        }
+        if ($script:AutoOptSuspended -and $mem.Pct -lt ([int]$numAuto.Value - 15)) {
+            $script:AutoOptSuspended = $false
+            $script:AutoOptStrikes   = 0
+            $txtEvents.AppendText("[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] AUTO-optimize re-armed (usage back to normal)`r`n")
+        }
+        $lblAutoInfo.Text =
+            if ($script:AutoOptSuspended) { 'SUSPENDED - not helping; restart the leaking app (see events)' }
+            else { '10 min cooldown; suspends itself if it stops helping' }
+        $lblAutoInfo.ForeColor =
+            if ($script:AutoOptSuspended) { [System.Drawing.Color]::Orange }
+            else { [System.Drawing.Color]::FromArgb(165, 165, 175) }
     } catch { }
 }
 
@@ -618,7 +705,7 @@ $btnSnapshot.Add_Click({ Do-Snapshot })
 
 # One-click optimize: trim unused memory from every process EXCEPT system
 # processes and the user's ticked exceptions. Never closes anything.
-function Do-Optimize {
+function Do-Optimize([switch]$Auto) {
     $memBefore = Get-MemInfo
     $skip = @('System','Idle','Registry','MemCompression','Memory Compression','csrss','wininit',
               'winlogon','smss','lsass','services','audiodg','dwm','fontdrvhost',
@@ -642,16 +729,22 @@ function Do-Optimize {
     $freedMB  = [math]::Max(0, [math]::Round(($before - $after) / 1MB))
     $memAfter = Get-MemInfo
     $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    $trigger  = if ($Auto) { 'auto' } else { 'manual' }
     $protList = ($protectedHit | Sort-Object) -join '; '
     $protMsg  = if ($protectedHit.Count) { " Protected: $protList." } else { '' }
-    $txtEvents.AppendText("[$ts] Optimize: $($memBefore.Pct)% -> $($memAfter.Pct)% | trimmed $trimmed processes, freed ~$freedMB MB.$protMsg`r`n")
+    $tag = if ($Auto) { 'AUTO Optimize' } else { 'Optimize' }
+    $txtEvents.AppendText("[$ts] ${tag}: $($memBefore.Pct)% -> $($memAfter.Pct)% | trimmed $trimmed processes, freed ~$freedMB MB.$protMsg`r`n")
     if (-not (Test-Path $script:OptCsv)) {
-        'timestamp,freedMB,processesTrimmed,usedPctBefore,usedPctAfter,usedGBBefore,usedGBAfter,protected' |
+        'timestamp,freedMB,processesTrimmed,usedPctBefore,usedPctAfter,usedGBBefore,usedGBAfter,protected,trigger' |
+            Out-File $script:OptCsv -Encoding utf8
+    } elseif ((Get-Content $script:OptCsv -First 1) -notmatch 'trigger') {
+        $all = Get-Content $script:OptCsv
+        @($all[0] + ',trigger') + @($all | Select-Object -Skip 1 | ForEach-Object { $_ + ',manual' }) |
             Out-File $script:OptCsv -Encoding utf8
     }
-    "$ts,$freedMB,$trimmed,$($memBefore.Pct),$($memAfter.Pct),$($memBefore.UsedGB),$($memAfter.UsedGB),$protList" |
+    "$ts,$freedMB,$trimmed,$($memBefore.Pct),$($memAfter.Pct),$($memBefore.UsedGB),$($memAfter.UsedGB),$protList,$trigger" |
         Add-Content $script:OptCsv
-    $notify.BalloonTipTitle = 'RAM Optimize'
+    $notify.BalloonTipTitle = if ($Auto) { 'RAM Auto-Optimize' } else { 'RAM Optimize' }
     $notify.BalloonTipText  = "RAM $($memBefore.Pct)% -> $($memAfter.Pct)% - freed ~$freedMB MB across $trimmed processes.$protMsg"
     $notify.ShowBalloonTip(8000)
     Update-Stats
@@ -815,7 +908,8 @@ $wTip.SetToolTip($lblWTrend,  'How much memory use changed recently')
 $wTip.SetToolTip($lblWGB,     'Used / total physical RAM')
 $wTip.SetToolTip($lv,          'Tick a process to protect it from Optimize RAM')
 $wTip.SetToolTip($btnWOpt,     'Optimize RAM now - trims all apps except your ticked exceptions')
-$wTip.SetToolTip($btnOptimize, 'Trim unused memory from all processes except ticked ones. Never closes apps.')
+$wTip.SetToolTip($btnOptimize, 'Trim unused memory from all processes except ticked ones. Never closes apps. Hotkey: Ctrl+Alt+O')
+$wTip.SetToolTip($chkAuto,     'Hands-free: optimizes automatically when usage crosses this level. 10-minute cooldown; suspends itself if trims stop helping (leak detected).')
 
 # Restore last position (default: top-right corner of the working area)
 $script:PosFile = Join-Path $script:LogDir 'widget-position.txt'
@@ -903,6 +997,44 @@ $notify.Add_MouseDoubleClick($openFull)
 
 if ($script:AppIcon) { $widget.Icon = $script:AppIcon }
 
+# ---------- persisted settings (thresholds + auto-optimize) ----------
+$script:SetFile = Join-Path $script:LogDir 'settings.txt'
+function Save-Settings {
+    @(
+        "alertPct=$([int]$numThreshold.Value)",
+        "autoEnabled=$(if ($chkAuto.Checked) { 1 } else { 0 })",
+        "autoPct=$([int]$numAuto.Value)"
+    ) | Out-File $script:SetFile -Encoding utf8
+}
+if (Test-Path $script:SetFile) {
+    try {
+        $kv = @{}
+        Get-Content $script:SetFile | ForEach-Object {
+            $pair = $_ -split '=', 2
+            if ($pair.Count -eq 2) { $kv[$pair[0].Trim()] = $pair[1].Trim() }
+        }
+        if ($kv['alertPct']) { $numThreshold.Value = [math]::Min(99, [math]::Max(50, [int]$kv['alertPct'])) }
+        if ($kv['autoPct'])  { $numAuto.Value      = [math]::Min(99, [math]::Max(50, [int]$kv['autoPct'])) }
+        $chkAuto.Checked = ($kv['autoEnabled'] -eq '1')
+    } catch {}
+}
+$numThreshold.Add_ValueChanged({ Save-Settings })
+$numAuto.Add_ValueChanged({ Save-Settings })
+$chkAuto.Add_CheckedChanged({
+    $script:AutoOptSuspended = $false
+    $script:AutoOptStrikes   = 0
+    Save-Settings
+})
+
+# ---------- global hotkey: Ctrl+Alt+O = optimize now ----------
+$script:HotKey = $null
+try {
+    $script:HotKey = New-Object RamHotKey
+    if ($script:HotKey.Register(0x0003, 0x4F)) {
+        $script:HotKey.add_Pressed({ Do-Optimize })
+    }
+} catch {}
+
 # Preload recent optimize history (from any earlier session) into the events box
 if (Test-Path $script:OptCsv) {
     Get-Content $script:OptCsv | Select-Object -Skip 1 | Select-Object -Last 5 | ForEach-Object {
@@ -924,6 +1056,7 @@ $timer.Add_Tick({
 $widget.Add_Shown({ Update-Stats; $timer.Start() })
 $widget.Add_FormClosed({
     $timer.Stop()
+    if ($script:HotKey) { try { $script:HotKey.Dispose() } catch {} }
     $notify.Visible = $false
     $notify.Dispose()
     if (-not $form.IsDisposed) { $form.Dispose() }
