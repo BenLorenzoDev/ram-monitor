@@ -6,7 +6,7 @@
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
-Add-Type -MemberDefinition '[DllImport("psapi.dll")] public static extern bool EmptyWorkingSet(IntPtr hProcess);' -Name 'Psapi' -Namespace 'Win32'
+Add-Type -MemberDefinition '[DllImport("psapi.dll")] public static extern bool EmptyWorkingSet(IntPtr hProcess); [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);' -Name 'Psapi' -Namespace 'Win32'
 Add-Type -ReferencedAssemblies System.Windows.Forms -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
@@ -43,6 +43,7 @@ $script:AutoOptStrikes   = 0
 $script:AutoOptSuspended = $false
 $script:OptGlowLevel     = 0   # 0 = calm, 1 = high (orange pulse), 2 = critical (red pulse)
 $script:GlowPhase        = 0.0
+$script:Optimizing       = $false
 
 # Optimize exceptions: process names the user has protected (ticked in the list)
 $script:OptCsv     = Join-Path $script:LogDir 'optimize-history.csv'
@@ -711,9 +712,82 @@ function Do-Snapshot {
 }
 $btnSnapshot.Add_Click({ Do-Snapshot })
 
+# Click FX: the bolt gets "struck by its own lightning" - shake + white/gold strobe
+function Start-OptimizeJolt([System.Windows.Forms.Button]$b) {
+    try {
+        $orig     = $b.Location
+        $origBack = $b.BackColor
+        $rnd = New-Object System.Random
+        for ($i = 0; $i -lt 8; $i++) {
+            $b.Location  = New-Object System.Drawing.Point(($orig.X + $rnd.Next(-2, 3)), ($orig.Y + $rnd.Next(-2, 3)))
+            $b.BackColor = if ($i % 2) { [System.Drawing.Color]::FromArgb(255, 240, 140) } else { [System.Drawing.Color]::White }
+            $b.ForeColor = if ($i % 2) { [System.Drawing.Color]::FromArgb(90, 60, 220) } else { [System.Drawing.Color]::FromArgb(255, 170, 0) }
+            $b.Refresh()
+            Start-Sleep -Milliseconds 30
+        }
+        $b.Location  = $orig
+        $b.BackColor = $origBack
+        $b.ForeColor = [System.Drawing.Color]::White
+        $b.Refresh()
+    } catch {}
+}
+
+# Result FX: game-style "loot number" - floats up from the widget bolt and fades out
+function Show-FreedToast([int]$freedMB) {
+    try {
+        $color =
+            if ($freedMB -ge 1000)   { [System.Drawing.Color]::FromArgb(120, 235, 150) }
+            elseif ($freedMB -ge 100){ [System.Drawing.Color]::FromArgb(255, 210, 80) }
+            else                     { [System.Drawing.Color]::FromArgb(170, 170, 180) }
+        $text = if ($freedMB -ge 1) { ('+{0:N0} MB freed' -f $freedMB) } else { 'already lean' }
+        $t = New-Object System.Windows.Forms.Form
+        $t.FormBorderStyle = 'None'
+        $t.ShowInTaskbar   = $false
+        $t.StartPosition   = 'Manual'
+        $t.TopMost         = $true
+        $t.BackColor       = [System.Drawing.Color]::FromArgb(24, 24, 28)
+        $t.Opacity         = 0
+        $lbl = New-Object System.Windows.Forms.Label
+        $lbl.AutoSize  = $true
+        $lbl.Font      = New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)
+        $lbl.ForeColor = $color
+        $lbl.BackColor = $t.BackColor
+        $lbl.Location  = New-Object System.Drawing.Point(10, 6)
+        $lbl.Text      = $text
+        $t.Controls.Add($lbl)
+        $t.ClientSize = New-Object System.Drawing.Size(($lbl.PreferredWidth + 20), ($lbl.PreferredHeight + 12))
+        $btnScreen = $widget.PointToScreen($btnWOpt.Location)
+        $t.Location = New-Object System.Drawing.Point(
+            ($btnScreen.X + 17 - [int]($t.Width / 2)),
+            ($btnScreen.Y - $t.Height - 6))
+        [void][Win32.Psapi]::ShowWindow($t.Handle, 4)   # show without stealing focus
+        $t.Opacity = 0.97
+        $anim = New-Object System.Windows.Forms.Timer
+        $anim.Interval = 30
+        $anim.Tag = $t
+        $anim.Add_Tick({
+            param($sender, $e)
+            try {
+                $f = $sender.Tag
+                $f.Top     = $f.Top - 2
+                $f.Opacity = [math]::Max(0, $f.Opacity - 0.035)
+                if ($f.Opacity -le 0.05) {
+                    $sender.Stop()
+                    $f.Close(); $f.Dispose()
+                    $sender.Dispose()
+                }
+            } catch { $sender.Stop(); $sender.Dispose() }
+        })
+        $anim.Start()
+    } catch {}
+}
+
 # One-click optimize: trim unused memory from every process EXCEPT system
 # processes and the user's ticked exceptions. Never closes anything.
 function Do-Optimize([switch]$Auto) {
+    if ($script:Optimizing) { return }
+    $script:Optimizing = $true
+    Start-OptimizeJolt $btnWOpt
     $memBefore = Get-MemInfo
     $skip = @('System','Idle','Registry','MemCompression','Memory Compression','csrss','wininit',
               'winlogon','smss','lsass','services','audiodg','dwm','fontdrvhost',
@@ -721,7 +795,10 @@ function Do-Optimize([switch]$Auto) {
     $before = [int64]0; $after = [int64]0; $trimmed = 0
     $perProc = @{}
     $protectedHit = New-Object System.Collections.Generic.HashSet[string]([System.StringComparer]::OrdinalIgnoreCase)
+    $scan = 0
     foreach ($p in (Get-Process -ErrorAction SilentlyContinue)) {
+        $scan++
+        if ($scan % 25 -eq 0) { try { [System.Windows.Forms.Application]::DoEvents() } catch {} }
         if ($p.Id -eq $PID) { continue }
         if ($skip -contains $p.ProcessName) { continue }
         if ($script:Exceptions.Contains($p.ProcessName)) { [void]$protectedHit.Add($p.ProcessName); continue }
@@ -794,6 +871,8 @@ function Do-Optimize([switch]$Auto) {
     $notify.BalloonTipTitle = if ($Auto) { 'RAM Auto-Optimize' } else { 'RAM Optimize' }
     $notify.BalloonTipText  = "RAM $($memBefore.Pct)% -> $($memAfter.Pct)% - freed ~$freedMB MB across $trimmed processes.$protMsg"
     $notify.ShowBalloonTip(8000)
+    $script:Optimizing = $false
+    Show-FreedToast $freedMB
     Update-Stats
 }
 
@@ -1097,6 +1176,7 @@ $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 1000
 $script:TickCount = 0
 $timer.Add_Tick({
+    if ($script:Optimizing) { return }
     $script:TickCount++
     if ($script:TickCount % 3 -eq 0) { Update-Stats } else { Update-Fast }
 })
@@ -1105,6 +1185,14 @@ $timer.Add_Tick({
 $glowTimer = New-Object System.Windows.Forms.Timer
 $glowTimer.Interval = 120
 $glowTimer.Add_Tick({
+    if ($script:Optimizing) {
+        # electric crackle while the trim is running
+        $script:GlowPhase += 1
+        $btnWOpt.BackColor =
+            if ([int]$script:GlowPhase % 2) { [System.Drawing.Color]::FromArgb(255, 240, 140) }
+            else                            { [System.Drawing.Color]::FromArgb(150, 110, 255) }
+        return
+    }
     if ($script:OptGlowLevel -eq 0) {
         $calm = [System.Drawing.Color]::FromArgb(104, 78, 214)
         if ($btnWOpt.BackColor -ne $calm) {
