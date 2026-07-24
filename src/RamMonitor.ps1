@@ -562,7 +562,7 @@ function Update-Fast {
             else                                  { 'OK' }
         $lblWStatus.ForeColor = $wColor
         $wBarFill.BackColor = $wColor
-        $wBarFill.Width     = [int][math]::Max(2, 210 * [math]::Min(100, $mem.Pct) / 100)
+        $wBarFill.Width     = [int][math]::Max(2, 228 * [math]::Min(100, $mem.Pct) / 100)
         $widget.BackColor   =
             if ($mem.Pct -ge $script:AlertPct) { [System.Drawing.Color]::FromArgb(70, 25, 25) }
             else                                  { [System.Drawing.Color]::FromArgb(30, 30, 32) }
@@ -798,7 +798,7 @@ function Show-FreedToast([int]$freedMB) {
         $t.ClientSize = New-Object System.Drawing.Size(($lbl.PreferredWidth + 20), ($lbl.PreferredHeight + 12))
         $btnScreen = $widget.PointToScreen($btnWOpt.Location)
         $t.Location = New-Object System.Drawing.Point(
-            ($btnScreen.X + 17 - [int]($t.Width / 2)),
+            ($btnScreen.X + [int]($btnWOpt.Width / 2) - [int]($t.Width / 2)),
             ($btnScreen.Y - $t.Height - 6))
         [void][Win32.Psapi]::ShowWindow($t.Handle, 4)   # show without stealing focus
         $t.Opacity = 0.97
@@ -935,7 +935,7 @@ $btnOpenLogs.Add_Click({ Start-Process $script:LogDir })
 $widget = New-Object System.Windows.Forms.Form
 $widget.Text            = 'RAM Monitor Widget'
 $widget.FormBorderStyle = 'None'
-$widget.Size            = New-Object System.Drawing.Size(232, 134)
+$widget.Size            = New-Object System.Drawing.Size(250, 176)
 $widget.StartPosition   = 'Manual'
 $widget.TopMost         = $true
 $widget.ShowInTaskbar   = $false
@@ -950,8 +950,8 @@ $lblWTitle.ForeColor = [System.Drawing.Color]::FromArgb(150, 150, 155)
 $lblWTitle.Text      = 'MEMORY (RAM)'
 
 $lblWStatus = New-Object System.Windows.Forms.Label
-$lblWStatus.Location  = New-Object System.Drawing.Point(120, 5)
-$lblWStatus.Size      = New-Object System.Drawing.Size(102, 16)
+$lblWStatus.Location  = New-Object System.Drawing.Point(130, 5)
+$lblWStatus.Size      = New-Object System.Drawing.Size(110, 16)
 $lblWStatus.Font      = New-Object System.Drawing.Font('Segoe UI', 8.5, [System.Drawing.FontStyle]::Bold)
 $lblWStatus.TextAlign = 'MiddleRight'
 $lblWStatus.ForeColor = [System.Drawing.Color]::White
@@ -959,28 +959,28 @@ $lblWStatus.Text      = '...'
 
 $lblWPct = New-Object System.Windows.Forms.Label
 $lblWPct.Location  = New-Object System.Drawing.Point(8, 20)
-$lblWPct.Size      = New-Object System.Drawing.Size(80, 32)
-$lblWPct.Font      = New-Object System.Drawing.Font('Segoe UI', 18, [System.Drawing.FontStyle]::Bold)
+$lblWPct.Size      = New-Object System.Drawing.Size(90, 34)
+$lblWPct.Font      = New-Object System.Drawing.Font('Segoe UI', 20, [System.Drawing.FontStyle]::Bold)
 $lblWPct.ForeColor = [System.Drawing.Color]::White
 $lblWPct.Text      = '--%'
 
 $lblWGB = New-Object System.Windows.Forms.Label
-$lblWGB.Location  = New-Object System.Drawing.Point(92, 24)
-$lblWGB.Size      = New-Object System.Drawing.Size(132, 16)
-$lblWGB.Font      = New-Object System.Drawing.Font('Segoe UI', 9)
+$lblWGB.Location  = New-Object System.Drawing.Point(102, 22)
+$lblWGB.Size      = New-Object System.Drawing.Size(138, 17)
+$lblWGB.Font      = New-Object System.Drawing.Font('Segoe UI', 9.5)
 $lblWGB.ForeColor = [System.Drawing.Color]::White
 $lblWGB.Text      = '-- / -- GB'
 
 $lblWFree = New-Object System.Windows.Forms.Label
-$lblWFree.Location  = New-Object System.Drawing.Point(92, 40)
-$lblWFree.Size      = New-Object System.Drawing.Size(132, 14)
+$lblWFree.Location  = New-Object System.Drawing.Point(102, 40)
+$lblWFree.Size      = New-Object System.Drawing.Size(138, 14)
 $lblWFree.Font      = New-Object System.Drawing.Font('Segoe UI', 7.5)
 $lblWFree.ForeColor = [System.Drawing.Color]::FromArgb(150, 150, 155)
 $lblWFree.Text      = 'reading...'
 
 $wBarBg = New-Object System.Windows.Forms.Panel
 $wBarBg.Location  = New-Object System.Drawing.Point(10, 58)
-$wBarBg.Size      = New-Object System.Drawing.Size(212, 8)
+$wBarBg.Size      = New-Object System.Drawing.Size(230, 8)
 $wBarBg.BackColor = [System.Drawing.Color]::FromArgb(62, 62, 66)
 
 $wBarFill = New-Object System.Windows.Forms.Panel
@@ -991,34 +991,34 @@ $wBarBg.Controls.Add($wBarFill)
 
 $wSpark = New-Object System.Windows.Forms.Panel
 $wSpark.Location  = New-Object System.Drawing.Point(10, 70)
-$wSpark.Size      = New-Object System.Drawing.Size(212, 30)
+$wSpark.Size      = New-Object System.Drawing.Size(230, 34)
 $wSpark.BackColor = [System.Drawing.Color]::FromArgb(38, 38, 42)
 
 $lblWTop = New-Object System.Windows.Forms.Label
-$lblWTop.Location  = New-Object System.Drawing.Point(10, 102)
-$lblWTop.Size      = New-Object System.Drawing.Size(174, 13)
+$lblWTop.Location  = New-Object System.Drawing.Point(10, 108)
+$lblWTop.Size      = New-Object System.Drawing.Size(230, 13)
 $lblWTop.Font      = New-Object System.Drawing.Font('Segoe UI', 7.5)
 $lblWTop.ForeColor = [System.Drawing.Color]::Gainsboro
 $lblWTop.Text      = 'Top: reading...'
 
 $lblWTrend = New-Object System.Windows.Forms.Label
-$lblWTrend.Location  = New-Object System.Drawing.Point(10, 115)
-$lblWTrend.Size      = New-Object System.Drawing.Size(174, 14)
+$lblWTrend.Location  = New-Object System.Drawing.Point(10, 121)
+$lblWTrend.Size      = New-Object System.Drawing.Size(230, 14)
 $lblWTrend.Font      = New-Object System.Drawing.Font('Segoe UI', 7.5)
 $lblWTrend.ForeColor = [System.Drawing.Color]::FromArgb(150, 150, 155)
 $lblWTrend.Text      = 'Trend: gathering data...'
 
-# One-tap optimize button (lightning bolt), respects the saved exceptions
+# Full-width optimize action bar - the widget's hero button, glows by severity
 $btnWOpt = New-Object System.Windows.Forms.Button
-$btnWOpt.Location  = New-Object System.Drawing.Point(188, 103)
-$btnWOpt.Size      = New-Object System.Drawing.Size(34, 27)
+$btnWOpt.Location  = New-Object System.Drawing.Point(10, 139)
+$btnWOpt.Size      = New-Object System.Drawing.Size(230, 30)
 $btnWOpt.FlatStyle = 'Flat'
 $btnWOpt.FlatAppearance.BorderSize = 0
 $btnWOpt.FlatAppearance.MouseOverBackColor = [System.Drawing.Color]::FromArgb(122, 96, 232)
 $btnWOpt.BackColor = [System.Drawing.Color]::FromArgb(104, 78, 214)
 $btnWOpt.ForeColor = [System.Drawing.Color]::White
 $btnWOpt.Font      = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
-$btnWOpt.Text      = [string][char]0x26A1
+$btnWOpt.Text      = ([string][char]0x26A1) + ' OPTIMIZE RAM'
 $btnWOpt.Cursor    = [System.Windows.Forms.Cursors]::Hand
 
 $widget.Controls.AddRange(@(
@@ -1029,7 +1029,7 @@ $widget.Controls.AddRange(@(
 $btnWOpt.Add_Click({
     $btnWOpt.Enabled = $false
     $oldText = $btnWOpt.Text
-    $btnWOpt.Text = '...'
+    $btnWOpt.Text = 'OPTIMIZING...'
     $btnWOpt.Refresh()
     try { Do-Optimize } finally { $btnWOpt.Text = $oldText; $btnWOpt.Enabled = $true }
 })
