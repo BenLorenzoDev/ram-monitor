@@ -101,6 +101,11 @@ function Get-MemInfo {
     }
 }
 
+# Human-friendly size: switches to GB once the amount crosses 1 GB
+function Format-MB([double]$mb) {
+    if ($mb -ge 1024) { '{0:N1} GB' -f ($mb / 1024) } else { '{0:N0} MB' -f $mb }
+}
+
 function Get-TopProcesses {
     # Hashtable aggregation - much faster than Group-Object on ~200+ processes
     $agg = @{}
@@ -153,7 +158,7 @@ function Get-SpikeAnalysis($mem, $top) {
         $lines += 'Biggest growth in that window:'
         foreach ($g in $gainers) {
             $tag = if ($g.IsNew) { ' (started in that window)' } else { '' }
-            $lines += ('  {0}: +{1:N0} MB (now {2:N0} MB){3}' -f $g.Name, $g.DeltaMB, $g.NowMB, $tag)
+            $lines += ('  {0}: +{1} (now {2}){3}' -f $g.Name, (Format-MB $g.DeltaMB), (Format-MB $g.NowMB), $tag)
         }
     } else {
         $lines += 'No single process grew much - memory rose gradually across many processes.'
@@ -779,7 +784,7 @@ function Show-FreedToast([int]$freedMB) {
             if ($freedMB -ge 1000)   { [System.Drawing.Color]::FromArgb(120, 235, 150) }
             elseif ($freedMB -ge 100){ [System.Drawing.Color]::FromArgb(255, 210, 80) }
             else                     { [System.Drawing.Color]::FromArgb(170, 170, 180) }
-        $text = if ($freedMB -ge 1) { ('+{0:N0} MB freed' -f $freedMB) } else { 'already lean' }
+        $text = if ($freedMB -ge 1) { "+$(Format-MB $freedMB) freed" } else { 'already lean' }
         $t = New-Object System.Windows.Forms.Form
         $t.FormBorderStyle = 'None'
         $t.ShowInTaskbar   = $false
@@ -881,9 +886,9 @@ function Do-Optimize([switch]$Auto) {
     }) | Sort-Object FreedMB -Descending
     $tag = if ($Auto) { 'AUTO Optimize' } else { 'Optimize' }
     $bullet = [string][char]0x2022
-    $txtEvents.AppendText(("[$ts] ${tag}: $($memBefore.Pct)% -> $($memAfter.Pct)% | freed ~{0:N0} MB across $trimmed processes`r`n" -f $freedMB))
+    $txtEvents.AppendText("[$ts] ${tag}: $($memBefore.Pct)% -> $($memAfter.Pct)% | freed ~$(Format-MB $freedMB) across $trimmed processes`r`n")
     foreach ($r in ($procRows | Select-Object -First 5)) {
-        $txtEvents.AppendText(("   $bullet {0} {1,7:N0} MB`r`n" -f $r.Name.PadRight(28), $r.FreedMB))
+        $txtEvents.AppendText(("   $bullet {0} {1,9}`r`n" -f $r.Name.PadRight(28), (Format-MB $r.FreedMB)))
     }
     if ($protectedHit.Count) {
         $txtEvents.AppendText("   $bullet protected: $(($protectedHit | Sort-Object) -join ', ')`r`n")
@@ -909,7 +914,7 @@ function Do-Optimize([switch]$Auto) {
     "$ts,$freedMB,$trimmed,$($memBefore.Pct),$($memAfter.Pct),$($memBefore.UsedGB),$($memAfter.UsedGB),$protList,$trigger" |
         Add-Content $script:OptCsv
     $notify.BalloonTipTitle = if ($Auto) { 'RAM Auto-Optimize' } else { 'RAM Optimize' }
-    $notify.BalloonTipText  = "RAM $($memBefore.Pct)% -> $($memAfter.Pct)% - freed ~$freedMB MB across $trimmed processes.$protMsg"
+    $notify.BalloonTipText  = "RAM $($memBefore.Pct)% -> $($memAfter.Pct)% - freed ~$(Format-MB $freedMB) across $trimmed processes.$protMsg"
     $notify.ShowBalloonTip(8000)
     $script:Optimizing = $false
     Update-Stats          # heavy refresh first, so the toast animates on an idle thread
@@ -1208,7 +1213,7 @@ if (Test-Path $script:OptCsv) {
     Get-Content $script:OptCsv | Select-Object -Skip 1 | Select-Object -Last 5 | ForEach-Object {
         $c = $_ -split ','
         if ($c.Count -ge 5) {
-            $txtEvents.AppendText("[$($c[0])] earlier Optimize: $($c[3])% -> $($c[4])%, freed ~$($c[1]) MB across $($c[2]) processes`r`n")
+            $txtEvents.AppendText("[$($c[0])] earlier Optimize: $($c[3])% -> $($c[4])%, freed ~$(Format-MB ([double]$c[1])) across $($c[2]) processes`r`n")
         }
     }
     $txtEvents.AppendText("`r`n")
