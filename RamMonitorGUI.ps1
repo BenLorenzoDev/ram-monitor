@@ -721,7 +721,7 @@ $btnKill.Add_Click({
     $mb = [math]::Round(($procs | Measure-Object WorkingSet64 -Sum).Sum / 1MB)
     $note = ''
     if ($name -match '^(claude|powershell|pwsh|WindowsTerminal|cmd)$') {
-        $note = " NOTE: this includes your terminal/Claude Code session."
+        $note = " NOTE: this includes your terminal/CLI session."
     }
     if (Confirm-Action "End all $($procs.Count) '$name' process(es) (~$mb MB)? Unsaved work in that app will be lost.$note") {
         $procs | Stop-Process -Force -ErrorAction SilentlyContinue

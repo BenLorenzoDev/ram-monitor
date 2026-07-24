@@ -156,7 +156,3 @@ Single-file WinForms app (`RamMonitorGUI.ps1`, no compilation, no modules):
 ## License
 
 [MIT](LICENSE) — do whatever you like, attribution appreciated.
-
----
-
-*Built with Claude Code.*
