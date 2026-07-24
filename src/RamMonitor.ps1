@@ -66,6 +66,10 @@ $script:History   = @()   # rolling per-process memory snapshots for spike auto-
 $script:GraphHist   = @() # 1-second usage samples for the graph
 $script:GraphWinSec = 60  # graph window: 60 / 300 / 600 seconds
 $script:LastMem     = $null
+# Cached copies of the threshold fields. Timers/paints read these instead of
+# the controls - reading NumericUpDown.Value force-validates half-typed text.
+$script:AlertPct = 85
+$script:AutoPct  = 80
 $script:LastAutoOpt      = [datetime]::MinValue
 $script:AutoOptStrikes   = 0
 $script:AutoOptSuspended = $false
@@ -466,7 +470,7 @@ $pnlGraph.Add_Paint({
     foreach ($i in 1..3) { $gy = [int]($h * $i / 4); $g.DrawLine($gridPen, 0, $gy, $w, $gy) }
     foreach ($i in 1..9) { $gx = [int]($w * $i / 10); $g.DrawLine($gridPen, $gx, 0, $gx, $h) }
     $gridPen.Dispose()
-    $ty = [int]($h * (1 - [int]$numThreshold.Value / 100))
+    $ty = [int]($h * (1 - [int]$script:AlertPct / 100))
     $tpen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(170, 220, 90, 90), 1)
     $tpen.DashStyle = [System.Drawing.Drawing2D.DashStyle]::Dash
     $g.DrawLine($tpen, 0, $ty, $w, $ty)
@@ -499,7 +503,7 @@ $pnlGraph.Add_Paint({
     $fnt = New-Object System.Drawing.Font('Segoe UI', 7)
     $lb  = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(140, 140, 150))
     $g.DrawString('100%', $fnt, $lb, 4, 2)
-    $g.DrawString("Alert $([int]$numThreshold.Value)%", $fnt, $lb, ($w - 62), [single][math]::Max(2, $ty - 15))
+    $g.DrawString("Alert $([int]$script:AlertPct)%", $fnt, $lb, ($w - 62), [single][math]::Max(2, $ty - 15))
     $winLabel = if ($script:GraphWinSec -ge 120) { "$([int]($script:GraphWinSec / 60)) min ago" } else { "$($script:GraphWinSec) sec ago" }
     $g.DrawString($winLabel, $fnt, $lb, 4, ($h - 16))
     $g.DrawString('now', $fnt, $lb, ($w - 32), ($h - 16))
@@ -543,7 +547,7 @@ function Update-Fast {
         $lblDetail.Text = "$($mem.UsedGB) GB of $($mem.TotalGB) GB in use ($([math]::Round($mem.TotalGB - $mem.UsedGB, 1)) GB free)"
 
         $wColor =
-            if ($mem.Pct -ge $numThreshold.Value) { [System.Drawing.Color]::FromArgb(235, 80, 80) }
+            if ($mem.Pct -ge $script:AlertPct) { [System.Drawing.Color]::FromArgb(235, 80, 80) }
             elseif ($mem.Pct -ge 70)              { [System.Drawing.Color]::Orange }
             else                                  { [System.Drawing.Color]::FromArgb(90, 200, 120) }
         $freeGB = [math]::Round($mem.TotalGB - $mem.UsedGB, 1)
@@ -553,17 +557,17 @@ function Update-Fast {
         $lblWGB.Text        = "$($mem.UsedGB) / $($mem.TotalGB) GB"
         $lblWFree.Text      = "$freeGB GB still free"
         $lblWStatus.Text    =
-            if ($mem.Pct -ge $numThreshold.Value) { 'CRITICAL' }
+            if ($mem.Pct -ge $script:AlertPct) { 'CRITICAL' }
             elseif ($mem.Pct -ge 70)              { 'HIGH' }
             else                                  { 'OK' }
         $lblWStatus.ForeColor = $wColor
         $wBarFill.BackColor = $wColor
         $wBarFill.Width     = [int][math]::Max(2, 210 * [math]::Min(100, $mem.Pct) / 100)
         $widget.BackColor   =
-            if ($mem.Pct -ge $numThreshold.Value) { [System.Drawing.Color]::FromArgb(70, 25, 25) }
+            if ($mem.Pct -ge $script:AlertPct) { [System.Drawing.Color]::FromArgb(70, 25, 25) }
             else                                  { [System.Drawing.Color]::FromArgb(30, 30, 32) }
         $script:OptGlowLevel =
-            if ($mem.Pct -ge $numThreshold.Value) { 2 }
+            if ($mem.Pct -ge $script:AlertPct) { 2 }
             elseif ($mem.Pct -ge 70)              { 1 }
             else                                  { 0 }
         $pnlGraph.Invalidate()
@@ -571,7 +575,7 @@ function Update-Fast {
 
         # Auto-optimize: hands-free trim with cooldown and self-suspend guard
         if ($chkAuto.Checked -and -not $script:AutoOptSuspended -and
-            $mem.Pct -ge [int]$numAuto.Value -and
+            $mem.Pct -ge [int]$script:AutoPct -and
             ((Get-Date) - $script:LastAutoOpt).TotalMinutes -ge 10) {
             $now = Get-Date
             if (($now - $script:LastAutoOpt).TotalMinutes -le 20) { $script:AutoOptStrikes++ }
@@ -590,11 +594,11 @@ function Update-Fast {
                 $notify.ShowBalloonTip(10000)
             } else {
                 $script:LastAutoOpt = $now
-                $txtEvents.AppendText("[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] AUTO-optimize triggered at $($mem.Pct)% (limit $([int]$numAuto.Value)%)`r`n")
+                $txtEvents.AppendText("[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] AUTO-optimize triggered at $($mem.Pct)% (limit $([int]$script:AutoPct)%)`r`n")
                 Do-Optimize -Auto
             }
         }
-        if ($script:AutoOptSuspended -and $mem.Pct -lt ([int]$numAuto.Value - 15)) {
+        if ($script:AutoOptSuspended -and $mem.Pct -lt ([int]$script:AutoPct - 15)) {
             $script:AutoOptSuspended = $false
             $script:AutoOptStrikes   = 0
             $txtEvents.AppendText("[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] AUTO-optimize re-armed (usage back to normal)`r`n")
@@ -660,7 +664,7 @@ function Update-Stats {
         $lv.EndUpdate()
         $script:RebuildingLv = $false
 
-        $sugText = Get-SuggestionText $mem $top ([int]$numThreshold.Value)
+        $sugText = Get-SuggestionText $mem $top ([int]$script:AlertPct)
         if ($txtSuggest.Text -ne $sugText) { $txtSuggest.Text = $sugText }
 
         $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
@@ -668,14 +672,14 @@ function Update-Stats {
             "$ts,$($mem.Pct),$($mem.UsedGB),$($mem.TotalGB)" | Add-Content $script:UsageCsv
         }
 
-        if ($mem.Pct -ge $numThreshold.Value -and
+        if ($mem.Pct -ge $script:AlertPct -and
             ((Get-Date) - $script:LastAlert).TotalSeconds -ge 120) {
             $script:LastAlert = Get-Date
             $culprits = ($top | Select-Object -First 3 | ForEach-Object {
                 "$($_.Name) ($([math]::Round($_.MemMB / 1024, 1)) GB)"
             }) -join ', '
             $txtEvents.AppendText("[$ts] SPIKE $($mem.Pct)% - top: $culprits`r`n")
-            Write-Snapshot "ALERT >= $($numThreshold.Value)%" $mem $top
+            Write-Snapshot "ALERT >= $($script:AlertPct)%" $mem $top
             $tip = "Memory at $($mem.Pct)% - $culprits"
             $analysis = Get-SpikeAnalysis $mem $top
             if ($analysis) {
@@ -1044,7 +1048,7 @@ $wSpark.Add_Paint({
     $g = $e.Graphics
     $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
     $w = $s.Width; $h = $s.Height
-    $ty = [int](($h - 2) * (1 - [int]$numThreshold.Value / 100)) + 1
+    $ty = [int](($h - 2) * (1 - [int]$script:AlertPct / 100)) + 1
     $tpen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(150, 200, 80, 80), 1)
     $tpen.DashStyle = [System.Drawing.Drawing2D.DashStyle]::Dash
     $g.DrawLine($tpen, 0, $ty, $w, $ty)
@@ -1163,9 +1167,9 @@ if ($script:AppIcon) { $widget.Icon = $script:AppIcon }
 $script:SetFile = Join-Path $script:LogDir 'settings.txt'
 function Save-Settings {
     @(
-        "alertPct=$([int]$numThreshold.Value)",
+        "alertPct=$([int]$script:AlertPct)",
         "autoEnabled=$(if ($chkAuto.Checked) { 1 } else { 0 })",
-        "autoPct=$([int]$numAuto.Value)"
+        "autoPct=$([int]$script:AutoPct)"
     ) | Out-File $script:SetFile -Encoding utf8
 }
 if (Test-Path $script:SetFile) {
@@ -1175,13 +1179,15 @@ if (Test-Path $script:SetFile) {
             $pair = $_ -split '=', 2
             if ($pair.Count -eq 2) { $kv[$pair[0].Trim()] = $pair[1].Trim() }
         }
-        if ($kv['alertPct']) { $numThreshold.Value = [math]::Min(99, [math]::Max(50, [int]$kv['alertPct'])) }
-        if ($kv['autoPct'])  { $numAuto.Value      = [math]::Min(99, [math]::Max(50, [int]$kv['autoPct'])) }
+        if ($kv['alertPct']) { $script:AlertPct = [math]::Min(99, [math]::Max(50, [int]$kv['alertPct'])); $numThreshold.Value = $script:AlertPct }
+        if ($kv['autoPct'])  { $script:AutoPct  = [math]::Min(99, [math]::Max(50, [int]$kv['autoPct']));  $numAuto.Value = $script:AutoPct }
         $chkAuto.Checked = ($kv['autoEnabled'] -eq '1')
     } catch {}
 }
-$numThreshold.Add_ValueChanged({ Save-Settings })
-$numAuto.Add_ValueChanged({ Save-Settings })
+$numThreshold.Add_ValueChanged({ $script:AlertPct = [int]$numThreshold.Value; Save-Settings })
+$numAuto.Add_ValueChanged({ $script:AutoPct = [int]$numAuto.Value; Save-Settings })
+$numThreshold.Add_Enter({ $numThreshold.Select(0, 10) })
+$numAuto.Add_Enter({ $numAuto.Select(0, 10) })
 $chkAuto.Add_CheckedChanged({
     $script:AutoOptSuspended = $false
     $script:AutoOptStrikes   = 0
