@@ -24,6 +24,32 @@ public class RamHotKey : NativeWindow, IDisposable {
     public void Dispose() { UnregisterHotKey(this.Handle, 1); this.DestroyHandle(); }
 }
 '@
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class MemApi {
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MEMORYSTATUSEX {
+        public uint dwLength;
+        public uint dwMemoryLoad;
+        public ulong ullTotalPhys;
+        public ulong ullAvailPhys;
+        public ulong ullTotalPageFile;
+        public ulong ullAvailPageFile;
+        public ulong ullTotalVirtual;
+        public ulong ullAvailVirtual;
+        public ulong ullAvailExtendedVirtual;
+    }
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX lpBuffer);
+    public static MEMORYSTATUSEX Get() {
+        MEMORYSTATUSEX m = new MEMORYSTATUSEX();
+        m.dwLength = (uint)Marshal.SizeOf(typeof(MEMORYSTATUSEX));
+        GlobalMemoryStatusEx(ref m);
+        return m;
+    }
+}
+'@
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
 $script:LogDir   = Join-Path $env:USERPROFILE 'ram-monitor'
@@ -59,26 +85,33 @@ function Save-Exceptions {
 $script:RebuildingLv = $false
 
 function Get-MemInfo {
-    $os = Get-CimInstance Win32_OperatingSystem
-    $totalGB = [math]::Round($os.TotalVisibleMemorySize / 1MB, 1)
-    $freeGB  = [math]::Round($os.FreePhysicalMemory / 1MB, 1)
-    $usedGB  = [math]::Round($totalGB - $freeGB, 1)
+    # GlobalMemoryStatusEx is microseconds vs tens of ms for WMI - keeps the UI thread free
+    $m = [MemApi]::Get()
+    $usedBytes = $m.ullTotalPhys - $m.ullAvailPhys
     [pscustomobject]@{
-        TotalGB = $totalGB
-        UsedGB  = $usedGB
-        Pct     = [math]::Round(($usedGB / $totalGB) * 100, 1)
+        TotalGB = [math]::Round($m.ullTotalPhys / 1GB, 1)
+        UsedGB  = [math]::Round($usedBytes / 1GB, 1)
+        Pct     = [math]::Round(($usedBytes / $m.ullTotalPhys) * 100, 1)
     }
 }
 
 function Get-TopProcesses {
-    Get-Process -ErrorAction SilentlyContinue |
-        Group-Object ProcessName | ForEach-Object {
-            [pscustomobject]@{
-                Name  = $_.Name
-                Count = $_.Count
-                MemMB = [math]::Round((($_.Group | Measure-Object WorkingSet64 -Sum).Sum) / 1MB, 0)
-            }
-        } | Sort-Object MemMB -Descending
+    # Hashtable aggregation - much faster than Group-Object on ~200+ processes
+    $agg = @{}
+    foreach ($p in (Get-Process -ErrorAction SilentlyContinue)) {
+        $n = $p.ProcessName
+        $e = $agg[$n]
+        if ($e) { $e.Count++; $e.Mem += $p.WorkingSet64 }
+        else    { $agg[$n] = @{ Count = 1; Mem = $p.WorkingSet64 } }
+    }
+    $rows = foreach ($k in $agg.Keys) {
+        [pscustomobject]@{
+            Name  = $k
+            Count = $agg[$k].Count
+            MemMB = [math]::Round($agg[$k].Mem / 1MB, 0)
+        }
+    }
+    $rows | Sort-Object MemMB -Descending
 }
 
 function Write-Snapshot([string]$reason, $mem, $top) {
@@ -500,8 +533,9 @@ function Update-Fast {
         $mem = Get-MemInfo
         $script:LastMem = $mem
         $script:GraphHist += ,@{ Time = Get-Date; Pct = $mem.Pct; UsedGB = $mem.UsedGB }
-        $gcut = (Get-Date).AddSeconds(-600)
-        $script:GraphHist = @($script:GraphHist | Where-Object { $_.Time -ge $gcut })
+        if ($script:GraphHist.Count -gt 650) {
+            $script:GraphHist = $script:GraphHist[($script:GraphHist.Count - 600)..($script:GraphHist.Count - 1)]
+        }
 
         $lblPct.Text    = "$($mem.Pct) %"
         $lblDetail.Text = "$($mem.UsedGB) GB of $($mem.TotalGB) GB in use ($([math]::Round($mem.TotalGB - $mem.UsedGB, 1)) GB free)"
@@ -763,15 +797,15 @@ function Show-FreedToast([int]$freedMB) {
         [void][Win32.Psapi]::ShowWindow($t.Handle, 4)   # show without stealing focus
         $t.Opacity = 0.97
         $anim = New-Object System.Windows.Forms.Timer
-        $anim.Interval = 30
+        $anim.Interval = 15   # ~64 fps, 1px steps = smooth rise
         $anim.Tag = $t
         $anim.Add_Tick({
             param($sender, $e)
             try {
                 $f = $sender.Tag
-                $f.Top     = $f.Top - 2
-                $f.Opacity = [math]::Max(0, $f.Opacity - 0.035)
-                if ($f.Opacity -le 0.05) {
+                $f.Top     = $f.Top - 1
+                $f.Opacity = [math]::Max(0, $f.Opacity - 0.018)
+                if ($f.Opacity -le 0.03) {
                     $sender.Stop()
                     $f.Close(); $f.Dispose()
                     $sender.Dispose()
@@ -872,8 +906,8 @@ function Do-Optimize([switch]$Auto) {
     $notify.BalloonTipText  = "RAM $($memBefore.Pct)% -> $($memAfter.Pct)% - freed ~$freedMB MB across $trimmed processes.$protMsg"
     $notify.ShowBalloonTip(8000)
     $script:Optimizing = $false
+    Update-Stats          # heavy refresh first, so the toast animates on an idle thread
     Show-FreedToast $freedMB
-    Update-Stats
 }
 
 $btnOptimize.Add_Click({
@@ -1176,7 +1210,7 @@ $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 1000
 $script:TickCount = 0
 $timer.Add_Tick({
-    if ($script:Optimizing) { return }
+    if ($script:Optimizing -or $script:Drag) { return }   # never compete with a drag
     $script:TickCount++
     if ($script:TickCount % 3 -eq 0) { Update-Stats } else { Update-Fast }
 })
@@ -1185,6 +1219,7 @@ $timer.Add_Tick({
 $glowTimer = New-Object System.Windows.Forms.Timer
 $glowTimer.Interval = 120
 $glowTimer.Add_Tick({
+    if ($script:Drag) { return }
     if ($script:Optimizing) {
         # electric crackle while the trim is running
         $script:GlowPhase += 1
