@@ -1,3 +1,0 @@
-alertPct=85
-autoEnabled=1
-autoPct=80
