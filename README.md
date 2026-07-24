@@ -62,7 +62,7 @@ and set its icon to `ram-monitor.ico`.
 | **Sparkline** | Usage over the last 10 minutes; the dashed red line is your alert threshold |
 | **Top:** line | The two biggest memory consumers right now, by name |
 | **Trend** line | `Rising / Falling / Stable` with the GB delta over the last ~5 minutes |
-| **⚡ button** | One-tap Optimize (respects your exceptions list) |
+| **⚡ button** | One-tap Optimize (respects your exceptions list). Glows by severity: calm violet when fine, pulsing orange at 70%+, fast red pulse past your alert threshold — when it's flashing, it's worth a tap |
 
 Interactions: **drag** to move (position is remembered) · **double-click** to open the full monitor · **right-click** for the menu (Open full monitor / Optimize RAM now / Snapshot now / Exit). The whole widget tints red when you cross the threshold. Hover any element for an explanatory tooltip.
 

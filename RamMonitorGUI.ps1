@@ -41,6 +41,8 @@ $script:LastMem     = $null
 $script:LastAutoOpt      = [datetime]::MinValue
 $script:AutoOptStrikes   = 0
 $script:AutoOptSuspended = $false
+$script:OptGlowLevel     = 0   # 0 = calm, 1 = high (orange pulse), 2 = critical (red pulse)
+$script:GlowPhase        = 0.0
 
 # Optimize exceptions: process names the user has protected (ticked in the list)
 $script:OptCsv     = Join-Path $script:LogDir 'optimize-history.csv'
@@ -522,6 +524,10 @@ function Update-Fast {
         $widget.BackColor   =
             if ($mem.Pct -ge $numThreshold.Value) { [System.Drawing.Color]::FromArgb(70, 25, 25) }
             else                                  { [System.Drawing.Color]::FromArgb(30, 30, 32) }
+        $script:OptGlowLevel =
+            if ($mem.Pct -ge $numThreshold.Value) { 2 }
+            elseif ($mem.Pct -ge 70)              { 1 }
+            else                                  { 0 }
         $pnlGraph.Invalidate()
         $wSpark.Invalidate()
 
@@ -1053,9 +1059,35 @@ $timer.Add_Tick({
     if ($script:TickCount % 3 -eq 0) { Update-Stats } else { Update-Fast }
 })
 
-$widget.Add_Shown({ Update-Stats; $timer.Start() })
+# Pulsing glow on the widget's optimize button when memory runs high
+$glowTimer = New-Object System.Windows.Forms.Timer
+$glowTimer.Interval = 120
+$glowTimer.Add_Tick({
+    if ($script:OptGlowLevel -eq 0) {
+        $calm = [System.Drawing.Color]::FromArgb(104, 78, 214)
+        if ($btnWOpt.BackColor -ne $calm) {
+            $btnWOpt.BackColor = $calm
+            $btnWOpt.FlatAppearance.BorderSize = 0
+        }
+        return
+    }
+    $script:GlowPhase += $(if ($script:OptGlowLevel -eq 2) { 0.55 } else { 0.28 })
+    $t = 0.5 + 0.5 * [math]::Sin($script:GlowPhase)
+    if ($script:OptGlowLevel -eq 2) {
+        $r = [int](200 + 55 * $t); $g = [int](45 + 45 * $t); $b = [int](45 + 45 * $t)
+    } else {
+        $r = [int](205 + 50 * $t); $g = [int](125 + 50 * $t); $b = [int](25 + 30 * $t)
+    }
+    $btnWOpt.BackColor = [System.Drawing.Color]::FromArgb($r, $g, $b)
+    $btnWOpt.FlatAppearance.BorderSize  = 1
+    $btnWOpt.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(
+        [math]::Min(255, $r + 45), [math]::Min(255, $g + 45), [math]::Min(255, $b + 45))
+})
+
+$widget.Add_Shown({ Update-Stats; $timer.Start(); $glowTimer.Start() })
 $widget.Add_FormClosed({
     $timer.Stop()
+    $glowTimer.Stop()
     if ($script:HotKey) { try { $script:HotKey.Dispose() } catch {} }
     $notify.Visible = $false
     $notify.Dispose()
