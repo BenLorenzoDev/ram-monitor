@@ -1,0 +1,9 @@
+# Runtime data created by the app (personal, never commit)
+ram-usage.csv
+ram-spikes.log
+optimize-history.csv
+optimize-exceptions.txt
+widget-position.txt
+monitor-errors.log
+monitor.pid
+stop.txt
