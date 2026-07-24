@@ -372,7 +372,7 @@ $lblSug.Text      = 'Suggested actions'
 
 $txtSuggest = New-Object System.Windows.Forms.TextBox
 $txtSuggest.Location    = New-Object System.Drawing.Point(20, 644)
-$txtSuggest.Size        = New-Object System.Drawing.Size(504, 105)
+$txtSuggest.Size        = New-Object System.Drawing.Size(504, 88)
 $txtSuggest.Multiline   = $true
 $txtSuggest.ReadOnly    = $true
 $txtSuggest.ScrollBars  = 'Vertical'
@@ -382,15 +382,15 @@ $txtSuggest.ForeColor   = $cText
 $txtSuggest.BorderStyle = 'FixedSingle'
 
 $lblEv = New-Object System.Windows.Forms.Label
-$lblEv.Location  = New-Object System.Drawing.Point(20, 757)
+$lblEv.Location  = New-Object System.Drawing.Point(20, 740)
 $lblEv.Size      = New-Object System.Drawing.Size(250, 18)
 $lblEv.Font      = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)
 $lblEv.ForeColor = $cText
 $lblEv.Text      = 'Alerts and events'
 
 $txtEvents = New-Object System.Windows.Forms.TextBox
-$txtEvents.Location    = New-Object System.Drawing.Point(20, 777)
-$txtEvents.Size        = New-Object System.Drawing.Size(504, 82)
+$txtEvents.Location    = New-Object System.Drawing.Point(20, 760)
+$txtEvents.Size        = New-Object System.Drawing.Size(504, 99)
 $txtEvents.Multiline   = $true
 $txtEvents.ReadOnly    = $true
 $txtEvents.ScrollBars  = 'Vertical'
@@ -648,6 +648,7 @@ function Update-Stats {
                     $tip = "Memory at $($mem.Pct)% - likely cause: $($analysis.TopGainer)"
                 }
             }
+            $txtEvents.AppendText("`r`n")
             $notify.BalloonTipTitle = 'RAM Alert'
             $notify.BalloonTipText  = $tip
             $notify.ShowBalloonTip(10000)
@@ -761,10 +762,16 @@ function Do-Optimize([switch]$Auto) {
             }
         }
     }) | Sort-Object FreedMB -Descending
-    $topFreed = ($procRows | Select-Object -First 3 | ForEach-Object { "$($_.Name) $($_.FreedMB) MB" }) -join ', '
-    $topMsg = if ($topFreed) { " Top freed: $topFreed." } else { '' }
     $tag = if ($Auto) { 'AUTO Optimize' } else { 'Optimize' }
-    $txtEvents.AppendText("[$ts] ${tag}: $($memBefore.Pct)% -> $($memAfter.Pct)% | trimmed $trimmed processes, freed ~$freedMB MB.$topMsg$protMsg`r`n")
+    $bullet = [string][char]0x2022
+    $txtEvents.AppendText(("[$ts] ${tag}: $($memBefore.Pct)% -> $($memAfter.Pct)% | freed ~{0:N0} MB across $trimmed processes`r`n" -f $freedMB))
+    foreach ($r in ($procRows | Select-Object -First 5)) {
+        $txtEvents.AppendText(("   $bullet {0} {1,7:N0} MB`r`n" -f $r.Name.PadRight(28), $r.FreedMB))
+    }
+    if ($protectedHit.Count) {
+        $txtEvents.AppendText("   $bullet protected: $(($protectedHit | Sort-Object) -join ', ')`r`n")
+    }
+    $txtEvents.AppendText("`r`n")
     if (-not (Test-Path $script:OptDetCsv)) {
         'timestamp,process,instances,beforeMB,afterMB,freedMB,trigger' | Out-File $script:OptDetCsv -Encoding utf8
     }
@@ -1083,6 +1090,7 @@ if (Test-Path $script:OptCsv) {
             $txtEvents.AppendText("[$($c[0])] earlier Optimize: $($c[3])% -> $($c[4])%, freed ~$($c[1]) MB across $($c[2]) processes`r`n")
         }
     }
+    $txtEvents.AppendText("`r`n")
 }
 
 $timer = New-Object System.Windows.Forms.Timer
