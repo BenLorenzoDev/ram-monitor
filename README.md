@@ -49,8 +49,22 @@ Double-click **`Start-RAM-Monitor.bat`** — the widget appears in the top-right
 To stop it: right-click the widget → **Exit RAM Monitor** (or double-click `Stop-RAM-Monitor.bat` if it's ever unresponsive).
 
 Optional: create a desktop/taskbar shortcut pointing to
-`powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File <path>\RamMonitorGUI.ps1`
+`powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File <path>\src\RamMonitor.ps1`
 and set its icon to `ram-monitor.ico`.
+
+## Repo layout
+
+| Path | Purpose |
+|---|---|
+| `Start-RAM-Monitor.bat` / `Stop-RAM-Monitor.bat` | End-user entry points: launch the widget / force-stop it |
+| `src/RamMonitor.ps1` | The entire application |
+| `ram-monitor.ico` | App icon (multi-resolution) |
+| `tools/` | Developer scripts: icon generator, optional native-exe launcher build |
+| `assets/` | Images used by this README |
+
+### Optional: build a native launcher (.exe)
+
+`tools/build-exe.ps1` compiles `tools/launcher.cs` into a small `RAM Monitor.exe` using the C# compiler bundled with Windows — double-clickable, no console, proper icon. **Fair warning:** an unsigned exe that spawns hidden PowerShell matches the behavior profile of malware droppers, so most antivirus products will quarantine it unless you add a folder exclusion *first*. The `.bat` / shortcut route avoids that entirely, which is why the repo doesn't ship a prebuilt exe.
 
 ## The widget
 
@@ -137,7 +151,7 @@ All created at runtime next to the script (and gitignored — they're personal):
 
 ## How it works
 
-Single-file WinForms app (`RamMonitorGUI.ps1`, no compilation, no modules):
+Single-file WinForms app (`src/RamMonitor.ps1`, no compilation, no modules):
 
 - **Two refresh lanes** — a 1-second fast path reads memory counters (`Win32_OperatingSystem`) and redraws the graph/widget; a 3-second slow path does the heavier work: `Get-Process` grouped by name, list rebuild, suggestions, CSV logging, alert checks. Steady-state CPU cost is negligible.
 - **Optimize** — P/Invokes `psapi.dll!EmptyWorkingSet` per process; access-denied processes are silently skipped (that's Windows protecting them, which is fine).
@@ -148,7 +162,8 @@ Single-file WinForms app (`RamMonitorGUI.ps1`, no compilation, no modules):
 
 ## Troubleshooting
 
-- **Widget doesn't appear** — check for a PowerShell process with `RamMonitorGUI` in its command line; `Stop-RAM-Monitor.bat` then `Start-RAM-Monitor.bat` gives a clean restart.
+- **Widget doesn't appear** — check for a PowerShell process with `RamMonitor` in its command line; `Stop-RAM-Monitor.bat` then `Start-RAM-Monitor.bat` gives a clean restart.
+- **Antivirus flags files** — the app legitimately does AV-suspicious-looking things (trims process memory, registers a global hotkey, runs as hidden PowerShell). Everything is plain inspectable text; add a folder exclusion if your AV complains.
 - **Scripts blocked** — the launchers pass `-ExecutionPolicy Bypass`, so no policy change is needed; if you run the .ps1 directly, use the same flag.
 - **No notifications** — Windows Focus Assist / Do Not Disturb suppresses balloon tips; the event log in the full monitor always records everything regardless.
 - **Killed it by accident?** — it can't happen from the widget (Exit is behind the right-click menu and a deliberate click), but if the process dies, logs are unaffected; just start it again.
