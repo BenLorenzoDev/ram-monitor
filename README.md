@@ -90,7 +90,7 @@ Clicking Optimize (widget ⚡, right-click menu, the button in the full monitor,
 1. Enumerates all running processes.
 2. Skips Windows system processes (kernel helpers, session services, audio, desktop rendering), antivirus, itself, and **everything you've ticked as an exception**.
 3. Asks Windows to trim each remaining process's *working set* — memory it holds but isn't actively using gets dropped or paged out. The app keeps running; nothing closes; no work is lost.
-4. Measures the result and reports it: notification + event-log line + a row in `optimize-history.csv` (`RAM 69% → 58%, freed ~2,100 MB across 148 processes. Protected: chrome`).
+4. Measures the result and reports it: notification + event-log line + a row in `optimize-history.csv` (`RAM 69% → 58%, freed ~2,100 MB across 148 processes. Protected: chrome`). Per-process results (who actually released how much) go to `optimize-details.csv`, and the event line names the top contributors: `Top freed: chrome 850 MB, Discord 320 MB, svchost 210 MB`.
 
 Honest caveats, by design in the docs and the UI: a just-trimmed app may be briefly sluggish as it reloads what it needs (that's what exceptions are for), and freed memory partially refills over time as apps touch their data again. Optimize is quick relief before launching something heavy — if one process keeps climbing relentlessly, that's a leak, the auto-analysis will name it, and the durable fix is restarting that app.
 
@@ -130,6 +130,7 @@ All created at runtime next to the script (and gitignored — they're personal):
 | `ram-usage.csv` | `timestamp, usedPercent, usedGB, totalGB` every 3 seconds — your usage curve |
 | `ram-spikes.log` | Timestamped process-table snapshots + growth analysis for every alert / manual snapshot |
 | `optimize-history.csv` | One row per optimize: MB freed, processes trimmed, RAM % before/after, what was protected, manual or auto trigger |
+| `optimize-details.csv` | One row per process per optimize (aggregated by name): instances, before/after/freed MB, trigger — for analyzing which apps actually release memory |
 | `optimize-exceptions.txt` | Your ticked exceptions, one process name per line |
 | `widget-position.txt` | Where you last dragged the widget |
 | `settings.txt` | Alert threshold, auto-optimize toggle and trigger level |

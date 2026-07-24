@@ -46,6 +46,7 @@ $script:GlowPhase        = 0.0
 
 # Optimize exceptions: process names the user has protected (ticked in the list)
 $script:OptCsv     = Join-Path $script:LogDir 'optimize-history.csv'
+$script:OptDetCsv  = Join-Path $script:LogDir 'optimize-details.csv'
 $script:ExFile     = Join-Path $script:LogDir 'optimize-exceptions.txt'
 $script:Exceptions = New-Object System.Collections.Generic.HashSet[string]([System.StringComparer]::OrdinalIgnoreCase)
 if (Test-Path $script:ExFile) {
@@ -717,6 +718,7 @@ function Do-Optimize([switch]$Auto) {
               'winlogon','smss','lsass','services','audiodg','dwm','fontdrvhost',
               'MsMpEng','SecurityHealthService','bdservicehost','bdagent','bdntwrk')
     $before = [int64]0; $after = [int64]0; $trimmed = 0
+    $perProc = @{}
     $protectedHit = New-Object System.Collections.Generic.HashSet[string]([System.StringComparer]::OrdinalIgnoreCase)
     foreach ($p in (Get-Process -ErrorAction SilentlyContinue)) {
         if ($p.Id -eq $PID) { continue }
@@ -729,6 +731,13 @@ function Do-Optimize([switch]$Auto) {
                 $before += $ws
                 $after  += $p.WorkingSet64
                 $trimmed++
+                if (-not $perProc.ContainsKey($p.ProcessName)) {
+                    $perProc[$p.ProcessName] = @{ Before = [int64]0; After = [int64]0; Count = 0 }
+                }
+                $entry = $perProc[$p.ProcessName]
+                $entry.Before += $ws
+                $entry.After  += $p.WorkingSet64
+                $entry.Count++
             }
         } catch {}
     }
@@ -738,8 +747,33 @@ function Do-Optimize([switch]$Auto) {
     $trigger  = if ($Auto) { 'auto' } else { 'manual' }
     $protList = ($protectedHit | Sort-Object) -join '; '
     $protMsg  = if ($protectedHit.Count) { " Protected: $protList." } else { '' }
+    # Per-process results (aggregated by name), for the details log + event line
+    $procRows = @(foreach ($k in $perProc.Keys) {
+        $entry = $perProc[$k]
+        $f = [math]::Round(($entry.Before - $entry.After) / 1MB)
+        if ($f -ge 1) {
+            [pscustomobject]@{
+                Name     = $k
+                Count    = $entry.Count
+                BeforeMB = [math]::Round($entry.Before / 1MB)
+                AfterMB  = [math]::Round($entry.After / 1MB)
+                FreedMB  = $f
+            }
+        }
+    }) | Sort-Object FreedMB -Descending
+    $topFreed = ($procRows | Select-Object -First 3 | ForEach-Object { "$($_.Name) $($_.FreedMB) MB" }) -join ', '
+    $topMsg = if ($topFreed) { " Top freed: $topFreed." } else { '' }
     $tag = if ($Auto) { 'AUTO Optimize' } else { 'Optimize' }
-    $txtEvents.AppendText("[$ts] ${tag}: $($memBefore.Pct)% -> $($memAfter.Pct)% | trimmed $trimmed processes, freed ~$freedMB MB.$protMsg`r`n")
+    $txtEvents.AppendText("[$ts] ${tag}: $($memBefore.Pct)% -> $($memAfter.Pct)% | trimmed $trimmed processes, freed ~$freedMB MB.$topMsg$protMsg`r`n")
+    if (-not (Test-Path $script:OptDetCsv)) {
+        'timestamp,process,instances,beforeMB,afterMB,freedMB,trigger' | Out-File $script:OptDetCsv -Encoding utf8
+    }
+    $detLines = foreach ($r in $procRows) {
+        $n = $r.Name
+        if ($n -match '[,"]') { $n = '"' + ($n -replace '"', '""') + '"' }
+        "$ts,$n,$($r.Count),$($r.BeforeMB),$($r.AfterMB),$($r.FreedMB),$trigger"
+    }
+    if ($detLines) { $detLines | Add-Content $script:OptDetCsv }
     if (-not (Test-Path $script:OptCsv)) {
         'timestamp,freedMB,processesTrimmed,usedPctBefore,usedPctAfter,usedGBBefore,usedGBAfter,protected,trigger' |
             Out-File $script:OptCsv -Encoding utf8

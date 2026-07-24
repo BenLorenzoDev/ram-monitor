@@ -2,6 +2,7 @@
 ram-usage.csv
 ram-spikes.log
 optimize-history.csv
+optimize-details.csv
 optimize-exceptions.txt
 widget-position.txt
 monitor-errors.log
