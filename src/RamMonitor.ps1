@@ -777,7 +777,10 @@ function Start-OptimizeJolt([System.Windows.Forms.Button]$b) {
     } catch {}
 }
 
-# Result FX: game-style "loot number" - floats up from the widget bolt and fades out
+# Result FX: a tiny rocket lifts off from the bolt, climbs, and bursts into a
+# firework at the top - the freed amount appears inside the explosion.
+# Everything is drawn GDI+ inside ONE fixed transparent window (no form
+# movement), so it stays smooth even when the system is under pressure.
 function Show-FreedToast([int]$freedMB) {
     try {
         $color =
@@ -785,42 +788,160 @@ function Show-FreedToast([int]$freedMB) {
             elseif ($freedMB -ge 100){ [System.Drawing.Color]::FromArgb(255, 210, 80) }
             else                     { [System.Drawing.Color]::FromArgb(170, 170, 180) }
         $text = if ($freedMB -ge 1) { "+$(Format-MB $freedMB) freed" } else { 'already lean' }
+        $palette =
+            if ($freedMB -ge 1000) { @([System.Drawing.Color]::FromArgb(120, 235, 150),
+                                       [System.Drawing.Color]::FromArgb(255, 210, 80),
+                                       [System.Drawing.Color]::FromArgb(160, 130, 255),
+                                       [System.Drawing.Color]::White) }
+            elseif ($freedMB -ge 100) { @([System.Drawing.Color]::FromArgb(255, 210, 80),
+                                          [System.Drawing.Color]::FromArgb(255, 150, 60),
+                                          [System.Drawing.Color]::White) }
+            else                      { @([System.Drawing.Color]::FromArgb(190, 190, 200),
+                                          [System.Drawing.Color]::White) }
         $t = New-Object System.Windows.Forms.Form
         $t.FormBorderStyle = 'None'
         $t.ShowInTaskbar   = $false
         $t.StartPosition   = 'Manual'
         $t.TopMost         = $true
-        $t.BackColor       = [System.Drawing.Color]::FromArgb(24, 24, 28)
-        $t.Opacity         = 0
-        $lbl = New-Object System.Windows.Forms.Label
-        $lbl.AutoSize  = $true
-        $lbl.Font      = New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)
-        $lbl.ForeColor = $color
-        $lbl.BackColor = $t.BackColor
-        $lbl.Location  = New-Object System.Drawing.Point(10, 6)
-        $lbl.Text      = $text
-        $t.Controls.Add($lbl)
-        $t.ClientSize = New-Object System.Drawing.Size(($lbl.PreferredWidth + 20), ($lbl.PreferredHeight + 12))
+        $t.ClientSize      = New-Object System.Drawing.Size(240, 300)
+        $key = [System.Drawing.Color]::FromArgb(1, 2, 3)   # never drawn, so it becomes see-through
+        $t.BackColor       = $key
+        $t.TransparencyKey = $key
+        try {
+            [System.Windows.Forms.Form].GetProperty('DoubleBuffered',
+                [System.Reflection.BindingFlags]'Instance,NonPublic').SetValue($t, $true, $null)
+        } catch {}
+        $rnd = New-Object System.Random
+        $st = @{
+            Form = $t; Rnd = $rnd; Text = $text; Color = $color
+            Frame = 0; Phase = 0; LaunchFrames = 45
+            StartY = 258.0; ApexY = 70.0; RocketY = 258.0
+            Puffs = @()
+            Parts = @(1..(@(8, 12, 18)[[int]($freedMB -ge 100) + [int]($freedMB -ge 1000)]) | ForEach-Object {
+                @{ Ang  = $rnd.NextDouble() * 6.2832
+                   Spd  = 2.0 + $rnd.NextDouble() * 2.6
+                   Dist = 0.0
+                   Len  = 6 + $rnd.Next(0, 8)
+                   Col  = $palette[$rnd.Next(0, $palette.Count)] }
+            })
+        }
+        $t.Tag = $st
+        $t.Add_Paint({
+            param($s, $e)
+            try {
+                $st = $s.Tag
+                $g  = $e.Graphics
+                $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+                $cx = [int]($s.ClientSize.Width / 2)
+                if ($st.Phase -eq 0) {
+                    foreach ($p in $st.Puffs) {           # exhaust smoke left behind
+                        $a = [int](100 * ($p.Life / 14.0))
+                        if ($a -gt 0) {
+                            $br = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb($a, 200, 200, 210))
+                            $g.FillEllipse($br, [single]($p.X - $p.R), [single]($p.Y - $p.R), [single]($p.R * 2), [single]($p.R * 2))
+                            $br.Dispose()
+                        }
+                    }
+                    $y  = [int]$st.RocketY
+                    $fl = 10 + $st.Rnd.Next(0, 9)         # flickering flame
+                    $fc = if ($st.Frame % 2) { [System.Drawing.Color]::FromArgb(255, 200, 60) }
+                          else               { [System.Drawing.Color]::FromArgb(255, 120, 30) }
+                    $fb = New-Object System.Drawing.SolidBrush($fc)
+                    $g.FillPolygon($fb, [System.Drawing.Point[]]@(
+                        (New-Object System.Drawing.Point(($cx - 4), ($y + 24))),
+                        (New-Object System.Drawing.Point(($cx + 4), ($y + 24))),
+                        (New-Object System.Drawing.Point($cx, ($y + 24 + $fl)))))
+                    $fb.Dispose()
+                    $vb = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(140, 110, 240))
+                    $g.FillPolygon($vb, [System.Drawing.Point[]]@(   # nose cone
+                        (New-Object System.Drawing.Point(($cx - 6), $y)),
+                        (New-Object System.Drawing.Point(($cx + 6), $y)),
+                        (New-Object System.Drawing.Point($cx, ($y - 12)))))
+                    $g.FillPolygon($vb, [System.Drawing.Point[]]@(   # left fin
+                        (New-Object System.Drawing.Point(($cx - 6), ($y + 14))),
+                        (New-Object System.Drawing.Point(($cx - 6), ($y + 24))),
+                        (New-Object System.Drawing.Point(($cx - 12), ($y + 26)))))
+                    $g.FillPolygon($vb, [System.Drawing.Point[]]@(   # right fin
+                        (New-Object System.Drawing.Point(($cx + 6), ($y + 14))),
+                        (New-Object System.Drawing.Point(($cx + 6), ($y + 24))),
+                        (New-Object System.Drawing.Point(($cx + 12), ($y + 26)))))
+                    $bb = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(238, 238, 245))
+                    $g.FillRectangle($bb, ($cx - 6), $y, 12, 24)     # body
+                    $bb.Dispose()
+                    $wb = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(90, 170, 255))
+                    $g.FillEllipse($wb, ($cx - 3), ($y + 5), 7, 7)   # porthole
+                    $wb.Dispose(); $vb.Dispose()
+                } else {
+                    $b  = $st.Frame - $st.LaunchFrames
+                    $ay = [int]$st.ApexY
+                    if ($b -lt 6) {                       # initial white flash
+                        $r  = 8 + 4 * $b
+                        $fa = [int](210 - 30 * $b)
+                        $br = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb($fa, 255, 255, 255))
+                        $g.FillEllipse($br, ($cx - $r), ($ay - $r), ($r * 2), ($r * 2))
+                        $br.Dispose()
+                    }
+                    $a = [int][math]::Max(0, 235 - $b * 2.6)
+                    if ($a -gt 0) {
+                        foreach ($p in $st.Parts) {       # firework streaks
+                            $pen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb($a, $p.Col), 2)
+                            $x1 = $cx + [math]::Cos($p.Ang) * [math]::Max(0, $p.Dist - $p.Len)
+                            $y1 = $ay + [math]::Sin($p.Ang) * [math]::Max(0, $p.Dist - $p.Len)
+                            $x2 = $cx + [math]::Cos($p.Ang) * $p.Dist
+                            $y2 = $ay + [math]::Sin($p.Ang) * $p.Dist
+                            $g.DrawLine($pen, [single]$x1, [single]$y1, [single]$x2, [single]$y2)
+                            $pen.Dispose()
+                        }
+                    }
+                    if ($b -ge 4) {                       # the payload: freed amount
+                        $font = New-Object System.Drawing.Font('Segoe UI', 12, [System.Drawing.FontStyle]::Bold)
+                        $sz   = $g.MeasureString($st.Text, $font)
+                        $tx   = $cx - $sz.Width / 2
+                        $ty   = $ay - $sz.Height / 2
+                        $sh = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(200, 20, 20, 24))
+                        $g.DrawString($st.Text, $font, $sh, [single]($tx + 1), [single]($ty + 1)); $sh.Dispose()
+                        $tb = New-Object System.Drawing.SolidBrush($st.Color)
+                        $g.DrawString($st.Text, $font, $tb, [single]$tx, [single]$ty); $tb.Dispose()
+                        $font.Dispose()
+                    }
+                }
+            } catch {}
+        })
         $btnScreen = $widget.PointToScreen($btnWOpt.Location)
-        $t.Location = New-Object System.Drawing.Point(
-            ($btnScreen.X + [int]($btnWOpt.Width / 2) - [int]($t.Width / 2)),
-            ($btnScreen.Y - $t.Height - 6))
+        $x = $btnScreen.X + [int]($btnWOpt.Width / 2) - [int]($t.Width / 2)
+        $y = $btnScreen.Y - $t.Height - 2
+        $wa = [System.Windows.Forms.Screen]::FromPoint($btnScreen).WorkingArea
+        $x  = [math]::Max($wa.Left, [math]::Min($x, $wa.Right - $t.Width))
+        $y  = [math]::Max($wa.Top, $y)
+        $t.Location = New-Object System.Drawing.Point($x, $y)
         [void][Win32.Psapi]::ShowWindow($t.Handle, 4)   # show without stealing focus
-        $t.Opacity = 0.97
         $anim = New-Object System.Windows.Forms.Timer
-        $anim.Interval = 15   # ~64 fps, 1px steps = smooth rise
-        $anim.Tag = $t
+        $anim.Interval = 15
+        $anim.Tag = $st
         $anim.Add_Tick({
             param($sender, $e)
             try {
-                $f = $sender.Tag
-                $f.Top     = $f.Top - 1
-                $f.Opacity = [math]::Max(0, $f.Opacity - 0.018)
-                if ($f.Opacity -le 0.03) {
-                    $sender.Stop()
-                    $f.Close(); $f.Dispose()
-                    $sender.Dispose()
+                $st = $sender.Tag
+                $st.Frame++
+                if ($st.Phase -eq 0) {
+                    $p = $st.Frame / [double]$st.LaunchFrames
+                    $st.RocketY = $st.StartY - ($st.StartY - $st.ApexY) * ($p * $p)   # accelerating climb
+                    $st.Puffs = @($st.Puffs | ForEach-Object { $_.Life--; $_ } | Where-Object { $_.Life -gt 0 })
+                    $st.Puffs += @{ X = 120 + $st.Rnd.Next(-4, 5); Y = $st.RocketY + 26 + $st.Rnd.Next(0, 7)
+                                    R = 2 + $st.Rnd.Next(0, 4); Life = 14 }
+                    if ($st.Frame -ge $st.LaunchFrames) { $st.Phase = 1 }
+                } else {
+                    $b = $st.Frame - $st.LaunchFrames
+                    foreach ($p in $st.Parts) { $p.Dist += $p.Spd; $p.Spd *= 0.955 }
+                    if ($b -ge 75) { $st.Form.Opacity = [math]::Max(0, $st.Form.Opacity - 0.04) }
+                    if ($st.Form.Opacity -le 0.03 -or $b -ge 115) {
+                        $sender.Stop()
+                        $st.Form.Close(); $st.Form.Dispose()
+                        $sender.Dispose()
+                        return
+                    }
                 }
+                $st.Form.Invalidate()
             } catch { $sender.Stop(); $sender.Dispose() }
         })
         $anim.Start()
