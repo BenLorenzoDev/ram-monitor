@@ -95,6 +95,21 @@ function Set-Glass([System.Windows.Forms.Form]$f, [int]$state, [uint32]$tint) {
     try { [GlassApi]::SetAccent($f.Handle, $state, $tint) } catch {}
 }
 
+# Not every monitor can composite the acrylic: on hybrid-GPU machines (this
+# one runs an NVIDIA dGPU + AMD iGPU), windows on a screen driven by the
+# second adapter lose their GDI-drawn text inside the blur. Screens in this
+# set always render solid; toggle them via widget right-click > Glass on
+# screens. Evaluated per window on every move, so a window is glassy on good
+# screens and solid on bad ones automatically.
+$script:NoGlass = New-Object System.Collections.Generic.HashSet[string]([System.StringComparer]::OrdinalIgnoreCase)
+function Get-EffectiveGlassState([System.Windows.Forms.Form]$f) {
+    if ($script:GlassState -eq 0) { return 0 }
+    try {
+        if ($script:NoGlass.Contains([System.Windows.Forms.Screen]::FromControl($f).DeviceName)) { return 0 }
+    } catch {}
+    return $script:GlassState
+}
+
 $script:LogDir   = Join-Path $env:USERPROFILE 'ram-monitor'
 if (-not (Test-Path $script:LogDir)) { New-Item -ItemType Directory -Path $script:LogDir | Out-Null }
 $script:UsageCsv = Join-Path $script:LogDir 'ram-usage.csv'
@@ -1399,7 +1414,7 @@ $dragDown = {
     param($s, $e)
     if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Left) {
         $script:Drag = @{ Cursor = [System.Windows.Forms.Cursor]::Position; Form = $widget.Location }
-        if ($script:GlassState -ne 0) { Set-Glass $widget 1 $script:GlassSolid }
+        if ((Get-EffectiveGlassState $widget) -ne 0) { Set-Glass $widget 1 $script:GlassSolid }
     }
 }
 $dragMove = {
@@ -1414,18 +1429,18 @@ $dragUp = {
     if ($script:Drag) {
         $script:Drag = $null
         "$($widget.Location.X),$($widget.Location.Y)" | Out-File $script:PosFile
-        # Re-applying (not just restoring) rebuilds the acrylic on whatever
-        # monitor the widget was dropped on; the repaint restores the text.
-        Set-Glass $widget $script:GlassState $script:GlassNormal
+        # Re-evaluate for whatever monitor the widget was dropped on: acrylic
+        # on glass-capable screens, solid on flagged ones.
+        Set-Glass $widget (Get-EffectiveGlassState $widget) $script:GlassNormal
         $widget.Invalidate($true)
         $widget.Update()
     }
 }
 $openFull   = { $form.Show(); $form.Activate() }
-$hoverEnter = { Set-Glass $widget $script:GlassState $script:GlassHover }
+$hoverEnter = { Set-Glass $widget (Get-EffectiveGlassState $widget) $script:GlassHover }
 $hoverLeave = {
     $p = $widget.PointToClient([System.Windows.Forms.Cursor]::Position)
-    if (-not $widget.ClientRectangle.Contains($p)) { Set-Glass $widget $script:GlassState $script:GlassNormal }
+    if (-not $widget.ClientRectangle.Contains($p)) { Set-Glass $widget (Get-EffectiveGlassState $widget) $script:GlassNormal }
 }
 
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
@@ -1447,6 +1462,30 @@ foreach ($tn in @($script:Themes.Keys)) {
 }
 [void]$menu.Items.Insert(3, $styleMenu)
 
+# Per-screen glass toggles: untick a screen where the acrylic renders broken
+# (missing text) and every window on that screen goes solid automatically.
+$glassMenu = New-Object System.Windows.Forms.ToolStripMenuItem('Glass on screens')
+$scrNum = 0
+foreach ($scr in [System.Windows.Forms.Screen]::AllScreens) {
+    $scrNum++
+    $label = "Screen $scrNum - $($scr.Bounds.Width)x$($scr.Bounds.Height)$(if ($scr.Primary) { ' (primary)' })"
+    $gi = New-Object System.Windows.Forms.ToolStripMenuItem($label)
+    $gi.Tag = $scr.DeviceName
+    $gi.Checked = $true
+    $gi.Add_Click({
+        param($s, $e)
+        if ($script:NoGlass.Contains([string]$s.Tag)) { [void]$script:NoGlass.Remove([string]$s.Tag); $s.Checked = $true }
+        else { [void]$script:NoGlass.Add([string]$s.Tag); $s.Checked = $false }
+        Save-Settings
+        Set-Glass $widget (Get-EffectiveGlassState $widget) $script:GlassNormal
+        Set-Glass $form   (Get-EffectiveGlassState $form)   $script:GlassNormal
+        $widget.Invalidate($true); $widget.Update()
+        if ($form.Visible) { $form.Invalidate($true); $form.Update() }
+    })
+    [void]$glassMenu.DropDownItems.Add($gi)
+}
+[void]$menu.Items.Insert(4, $glassMenu)
+
 foreach ($c in @($widget, $lblWTitle, $lblWStatus, $lblWPct, $lblWGB, $lblWFree,
                  $wBarBg, $wBarFill, $wSpark, $lblWTop, $lblWTrend)) {
     $c.Add_MouseDown($dragDown)
@@ -1458,14 +1497,15 @@ foreach ($c in @($widget, $lblWTitle, $lblWStatus, $lblWPct, $lblWGB, $lblWFree,
     $c.ContextMenuStrip = $menu
 }
 
-# Moving a window to another monitor can break the acrylic composition there
-# (text drops out of the blended surface, notably with mixed DPI or a second
-# GPU). Re-applying the accent after the move forces the compositor to
-# rebuild it for the new monitor, and a full repaint restores the text.
+# Re-evaluate the glass every time the monitor window finishes moving or is
+# reopened: acrylic on glass-capable screens, solid on flagged ones.
 $form.Add_ResizeEnd({
-    Set-Glass $form $script:GlassState $script:GlassNormal
+    Set-Glass $form (Get-EffectiveGlassState $form) $script:GlassNormal
     $form.Invalidate($true)
     $form.Update()
+})
+$form.Add_VisibleChanged({
+    if ($form.Visible) { Set-Glass $form (Get-EffectiveGlassState $form) $script:GlassNormal }
 })
 
 # Closing the full window hides it back to the widget instead of exiting
@@ -1519,14 +1559,15 @@ function Apply-Theme([string]$name) {
     $wSpark.BackColor = $t.SparkBg
     $btnWOpt.BackColor = $t.Accent
     $btnWOpt.FlatAppearance.MouseOverBackColor = $t.AccentHover
-    # glass tint/state per style
-    Set-Glass $widget $t.GlassState $t.GlassNormal
-    Set-Glass $form   $t.GlassState $t.GlassNormal
-    # sync both pickers without re-triggering
+    # glass tint/state per style, per screen
+    Set-Glass $widget (Get-EffectiveGlassState $widget) $t.GlassNormal
+    Set-Glass $form   (Get-EffectiveGlassState $form)   $t.GlassNormal
+    # sync pickers and menu checkmarks without re-triggering
     $script:SettingStyle = $true
     try {
         $cboStyle.SelectedItem = $name
         foreach ($mi in $styleMenu.DropDownItems) { $mi.Checked = ($mi.Text -eq $name) }
+        foreach ($gi in $glassMenu.DropDownItems) { $gi.Checked = -not $script:NoGlass.Contains([string]$gi.Tag) }
     } catch {}
     $script:SettingStyle = $false
     $form.Refresh(); $widget.Refresh()
@@ -1540,7 +1581,8 @@ function Save-Settings {
         "alertPct=$([int]$script:AlertPct)",
         "autoEnabled=$(if ($chkAuto.Checked) { 1 } else { 0 })",
         "autoPct=$([int]$script:AutoPct)",
-        "style=$($script:StyleName)"
+        "style=$($script:StyleName)",
+        "noGlass=$(($script:NoGlass | Sort-Object) -join '|')"
     ) | Out-File $script:SetFile -Encoding utf8
 }
 if (Test-Path $script:SetFile) {
@@ -1554,10 +1596,26 @@ if (Test-Path $script:SetFile) {
         if ($kv['autoPct'])  { $script:AutoPct  = [math]::Min(99, [math]::Max(50, [int]$kv['autoPct']));  $numAuto.Value = $script:AutoPct }
         $chkAuto.Checked = ($kv['autoEnabled'] -eq '1')
         if ($kv['style'] -and $script:Themes[$kv['style']]) { $script:StyleName = $kv['style'] }
+        if ($kv.ContainsKey('noGlass')) {
+            foreach ($n in ($kv['noGlass'] -split '\|')) { if ($n) { [void]$script:NoGlass.Add($n) } }
+            $script:NoGlassLoaded = $true
+        }
+    } catch {}
+}
+# First run on a hybrid-GPU machine (two active display adapters): default the
+# glass to the primary screen only, since screens on the second adapter tend
+# to drop GDI text from the acrylic. Any screen can be re-ticked in the menu.
+if (-not $script:NoGlassLoaded) {
+    try {
+        if (@(Get-CimInstance Win32_VideoController | Where-Object { $_.Status -eq 'OK' }).Count -ge 2) {
+            foreach ($scr in [System.Windows.Forms.Screen]::AllScreens) {
+                if (-not $scr.Primary) { [void]$script:NoGlass.Add($scr.DeviceName) }
+            }
+        }
     } catch {}
 }
 # Apply the persisted (or default) style once everything exists - this also
-# syncs the picker, the menu checkmarks, and the glass tints.
+# syncs the pickers, the menu checkmarks, and the glass tints.
 Apply-Theme $script:StyleName
 $numThreshold.Add_ValueChanged({ $script:AlertPct = [int]$numThreshold.Value; Save-Settings })
 $numAuto.Add_ValueChanged({ $script:AutoPct = [int]$numAuto.Value; Save-Settings })
@@ -1647,9 +1705,9 @@ $widget.Add_FormClosed({
 # sticks to the handle, so hiding/showing the monitor keeps its glass.
 try {
     [GlassApi]::RoundCorners($widget.Handle)
-    Set-Glass $widget $script:GlassState $script:GlassNormal
+    Set-Glass $widget (Get-EffectiveGlassState $widget) $script:GlassNormal
     [GlassApi]::DarkTitleBar($form.Handle)
-    Set-Glass $form $script:GlassState $script:GlassNormal
+    Set-Glass $form (Get-EffectiveGlassState $form) $script:GlassNormal
 } catch {}
 
 [void]$widget.ShowDialog()
