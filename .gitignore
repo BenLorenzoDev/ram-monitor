@@ -9,3 +9,6 @@ monitor-errors.log
 monitor.pid
 stop.txt
 settings.txt
+
+# Locally built launcher (repo deliberately ships no prebuilt exe - see README)
+RamMonitor.exe

@@ -162,7 +162,7 @@ Single-file WinForms app (`src/RamMonitor.ps1`, no compilation, no modules):
 
 ### Optional: build a native launcher (.exe)
 
-`tools/build-exe.ps1` compiles `tools/launcher.cs` into a small `RAM Monitor.exe` using the C# compiler bundled with Windows — double-clickable, no console, proper icon. **Fair warning:** an unsigned exe that spawns hidden PowerShell matches the behavior profile of malware droppers, so most antivirus products will quarantine it unless you add a folder exclusion *first*. The `.bat` / shortcut route avoids that entirely, which is why the repo doesn't ship a prebuilt exe.
+`tools/build-exe.ps1` compiles `tools/launcher.cs` into a small `RamMonitor.exe` using the C# compiler bundled with Windows — double-clickable, no console, proper icon. **Fair warning:** an unsigned exe that spawns hidden PowerShell matches the behavior profile of malware droppers, so most antivirus products will quarantine it unless you add a folder exclusion *first*. The `.bat` / shortcut route avoids that entirely, which is why the repo doesn't ship a prebuilt exe.
 
 ## Troubleshooting
 

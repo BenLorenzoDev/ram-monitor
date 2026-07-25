@@ -15,7 +15,7 @@ static class Launcher
         if (!File.Exists(script))
         {
             MessageBox.Show("Could not find the application script:\n" + script +
-                "\n\nKeep RAM Monitor.exe next to the 'src' folder.", "RAM Monitor",
+                "\n\nKeep RamMonitor.exe next to the 'src' folder.", "RAM Monitor",
                 MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
