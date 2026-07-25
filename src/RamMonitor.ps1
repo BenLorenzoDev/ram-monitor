@@ -85,9 +85,12 @@ public static class GlassApi {
 # Glassmorphism: real acrylic blur-behind from the desktop compositor (same
 # effect Task Manager / Terminal use). All calls are try/catch no-ops on
 # systems without the API, leaving the plain dark theme.
-$script:GlassNormal = [uint32]0xB2281E1E   # ~70% dark tint over the blur (AABBGGRR)
-$script:GlassHover  = [uint32]0xD2281E1E   # a touch more solid under the cursor
-$script:GlassSolid  = [uint32]0xFF2C2426   # fully opaque - used while dragging (blur-while-drag lags)
+# PS 5.1 parses 8-digit hex literals as negative Int32, so [uint32]0xB2281E1E
+# throws - parse from a hex string instead.
+function HexTint([string]$hex) { [uint32]::Parse($hex, [System.Globalization.NumberStyles]::HexNumber) }
+$script:GlassNormal = HexTint 'B2281E1E'   # ~70% dark tint over the blur (AABBGGRR)
+$script:GlassHover  = HexTint 'D2281E1E'   # a touch more solid under the cursor
+$script:GlassSolid  = HexTint 'FF2C2426'   # fully opaque - used while dragging (blur-while-drag lags)
 function Set-Glass([System.Windows.Forms.Form]$f, [int]$state, [uint32]$tint) {
     try { [GlassApi]::SetAccent($f.Handle, $state, $tint) } catch {}
 }
@@ -256,21 +259,48 @@ function Get-SuggestionText($mem, $top, [int]$threshold) {
 }
 
 # ---------- UI (dark, Task Manager style) ----------
-$cBg     = [System.Drawing.Color]::FromArgb(32, 32, 36)
-$cCard   = [System.Drawing.Color]::FromArgb(40, 40, 46)
-$cText   = [System.Drawing.Color]::FromArgb(235, 235, 240)
-$cSub    = [System.Drawing.Color]::FromArgb(165, 165, 175)
-$cBorder = [System.Drawing.Color]::FromArgb(70, 70, 80)
+# ---------- style system ----------
+# Every UI style is a complete palette here. The picker (monitor dropdown or
+# widget right-click > Style) calls Apply-Theme, which reassigns the live
+# palette vars below and restyles every control. Add a new style = add an
+# entry to this table, nothing else.
+function C([int]$r, [int]$g, [int]$b, [int]$a = 255) { [System.Drawing.Color]::FromArgb($a, $r, $g, $b) }
+$script:Themes = [ordered]@{
+    'Midnight Glass' = @{
+        Bg = C 32 32 36;      Card = C 40 40 46;    Text = C 235 235 240
+        Sub = C 165 165 175;  Border = C 70 70 80
+        HeadBg = C 52 52 60;  HeadText = C 200 200 210
+        BtnBg = C 55 55 64;   BtnHover = C 70 70 80; BtnBorder = C 84 84 96
+        Accent = C 104 78 214; AccentHover = C 122 96 232
+        GraphGrid = C 52 52 60; GraphLine = C 168 130 255; GraphFill = C 155 120 255 60
+        Axis = C 140 140 150; Status = C 140 140 150
+        WidgetBg = C 30 30 32; WidgetSub = C 150 150 155
+        BarBg = C 62 62 66;   SparkBg = C 38 38 42;  SparkLine = C 110 170 235
+        GlassState = 4
+        GlassNormal = HexTint 'B2281E1E'; GlassHover = HexTint 'D2281E1E'; GlassSolid = HexTint 'FF2C2426'
+    }
+}
+$script:StyleName = 'Midnight Glass'
+
+# Live palette. Paint handlers read these at draw time, so a theme switch only
+# needs to reassign them; per-control properties are re-set by Apply-Theme.
+$t0 = $script:Themes[$script:StyleName]
+$cBg = $t0.Bg; $cCard = $t0.Card; $cText = $t0.Text; $cSub = $t0.Sub; $cBorder = $t0.Border
+$cHeadBg = $t0.HeadBg; $cHeadText = $t0.HeadText
+$cBtnBg = $t0.BtnBg; $cBtnHover = $t0.BtnHover; $cBtnBorder = $t0.BtnBorder
+$cAccent = $t0.Accent; $cAccentHover = $t0.AccentHover
+$cGraphGrid = $t0.GraphGrid; $cGraphLine = $t0.GraphLine; $cGraphFill = $t0.GraphFill
+$cAxis = $t0.Axis; $cStatus = $t0.Status
+$cWidgetBg = $t0.WidgetBg; $cWidgetSub = $t0.WidgetSub
+$cBarBg = $t0.BarBg; $cSparkBg = $t0.SparkBg; $cSparkLine = $t0.SparkLine
+$script:GlassState = $t0.GlassState
 
 function Style-DarkButton($b, [bool]$accent = $false) {
     $b.FlatStyle = 'Flat'
     $b.FlatAppearance.BorderSize  = 1
-    $b.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(84, 84, 96)
-    $b.BackColor = if ($accent) { [System.Drawing.Color]::FromArgb(104, 78, 214) }
-                   else         { [System.Drawing.Color]::FromArgb(55, 55, 64) }
-    $b.FlatAppearance.MouseOverBackColor =
-        if ($accent) { [System.Drawing.Color]::FromArgb(122, 96, 232) }
-        else         { [System.Drawing.Color]::FromArgb(70, 70, 80) }
+    $b.FlatAppearance.BorderColor = $cBtnBorder
+    $b.BackColor = if ($accent) { $cAccent } else { $cBtnBg }
+    $b.FlatAppearance.MouseOverBackColor = if ($accent) { $cAccentHover } else { $cBtnHover }
     $b.ForeColor = [System.Drawing.Color]::White
     $b.Cursor    = [System.Windows.Forms.Cursors]::Hand
 }
@@ -412,11 +442,11 @@ $lv.BorderStyle   = 'FixedSingle'
 $lv.OwnerDraw = $true
 $lv.Add_DrawColumnHeader({
     param($s, $e)
-    $bg = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(52, 52, 60))
+    $bg = New-Object System.Drawing.SolidBrush($cHeadBg)
     $e.Graphics.FillRectangle($bg, $e.Bounds); $bg.Dispose()
     $fmt = New-Object System.Drawing.StringFormat
     $fmt.LineAlignment = [System.Drawing.StringAlignment]::Center
-    $tb = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(200, 200, 210))
+    $tb = New-Object System.Drawing.SolidBrush($cHeadText)
     $r = New-Object System.Drawing.RectangleF(($e.Bounds.X + 6), $e.Bounds.Y, ($e.Bounds.Width - 6), $e.Bounds.Height)
     $e.Graphics.DrawString($e.Header.Text, $s.Font, $tb, $r, $fmt)
     $tb.Dispose(); $fmt.Dispose()
@@ -485,8 +515,26 @@ $txtEvents.BorderStyle = 'FixedSingle'
 $lblStatus = New-Object System.Windows.Forms.Label
 $lblStatus.Location  = New-Object System.Drawing.Point(20, 636)
 $lblStatus.Size      = New-Object System.Drawing.Size(944, 16)
-$lblStatus.ForeColor = [System.Drawing.Color]::FromArgb(140, 140, 150)
+$lblStatus.ForeColor = $cStatus
 $lblStatus.Text      = 'Tick = protected from Optimize  |  Ctrl+Alt+O = optimize anywhere  |  X returns to widget'
+
+# UI style picker (top-right corner); the widget's right-click menu has the same list
+$lblStyle = New-Object System.Windows.Forms.Label
+$lblStyle.Location  = New-Object System.Drawing.Point(800, 14)
+$lblStyle.Size      = New-Object System.Drawing.Size(40, 18)
+$lblStyle.ForeColor = $cSub
+$lblStyle.Text      = 'Style'
+$cboStyle = New-Object System.Windows.Forms.ComboBox
+$cboStyle.Location      = New-Object System.Drawing.Point(842, 10)
+$cboStyle.Size          = New-Object System.Drawing.Size(122, 22)
+$cboStyle.DropDownStyle = 'DropDownList'
+$cboStyle.FlatStyle     = 'Flat'
+$cboStyle.BackColor     = $cCard
+$cboStyle.ForeColor     = $cText
+[void]$cboStyle.Items.AddRange(@($script:Themes.Keys))
+$cboStyle.Add_SelectedIndexChanged({
+    if (-not $script:SettingStyle -and $cboStyle.SelectedItem) { Apply-Theme ([string]$cboStyle.SelectedItem) }
+})
 
 $form.Controls.AddRange(@(
     $lblPct, $lblDetail, $lblGraphCap, $cboWin, $pnlGraph,
@@ -494,7 +542,8 @@ $form.Controls.AddRange(@(
     $chkLog, $btnSnapshot, $btnOpenLogs,
     $chkAuto, $numAuto, $lblAutoPct, $lblAutoInfo, $lv,
     $btnKill, $btnTaskMgr, $btnOptimize,
-    $lblSug, $txtSuggest, $lblEv, $txtEvents, $lblStatus
+    $lblSug, $txtSuggest, $lblEv, $txtEvents, $lblStatus,
+    $lblStyle, $cboStyle
 ))
 
 # Flicker-free redraws for the big graph
@@ -509,7 +558,7 @@ $pnlGraph.Add_Paint({
     $g = $e.Graphics
     $w = $s.Width; $h = $s.Height
     $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
-    $gridPen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(52, 52, 60), 1)
+    $gridPen = New-Object System.Drawing.Pen($cGraphGrid, 1)
     foreach ($i in 1..3) { $gy = [int]($h * $i / 4); $g.DrawLine($gridPen, 0, $gy, $w, $gy) }
     foreach ($i in 1..9) { $gx = [int]($w * $i / 10); $g.DrawLine($gridPen, $gx, 0, $gx, $h) }
     $gridPen.Dispose()
@@ -535,23 +584,23 @@ $pnlGraph.Add_Paint({
             $poly.AddRange($pts)
             $poly.Add((New-Object System.Drawing.PointF($pts[$pts.Count - 1].X, $h)))
             $poly.Add((New-Object System.Drawing.PointF($pts[0].X, $h)))
-            $fill = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(60, 155, 120, 255))
+            $fill = New-Object System.Drawing.SolidBrush($cGraphFill)
             $g.FillPolygon($fill, $poly.ToArray())
             $fill.Dispose()
-            $pen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(168, 130, 255), 2)
+            $pen = New-Object System.Drawing.Pen($cGraphLine, 2)
             $g.DrawLines($pen, $pts.ToArray())
             $pen.Dispose()
         }
     }
     $fnt = New-Object System.Drawing.Font('Segoe UI', 7)
-    $lb  = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(140, 140, 150))
+    $lb  = New-Object System.Drawing.SolidBrush($cAxis)
     $g.DrawString('100%', $fnt, $lb, 4, 2)
     $g.DrawString("Alert $([int]$script:AlertPct)%", $fnt, $lb, ($w - 62), [single][math]::Max(2, $ty - 15))
     $winLabel = if ($script:GraphWinSec -ge 120) { "$([int]($script:GraphWinSec / 60)) min ago" } else { "$($script:GraphWinSec) sec ago" }
     $g.DrawString($winLabel, $fnt, $lb, 4, ($h - 16))
     $g.DrawString('now', $fnt, $lb, ($w - 32), ($h - 16))
     $lb.Dispose(); $fnt.Dispose()
-    $bp = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(70, 70, 80), 1)
+    $bp = New-Object System.Drawing.Pen($cBorder, 1)
     $g.DrawRectangle($bp, 0, 0, ($w - 1), ($h - 1))
     $bp.Dispose()
 })
@@ -608,7 +657,7 @@ function Update-Fast {
         $wBarFill.Width     = [int][math]::Max(2, 228 * [math]::Min(100, $mem.Pct) / 100)
         $widget.BackColor   =
             if ($mem.Pct -ge $script:AlertPct) { [System.Drawing.Color]::FromArgb(70, 25, 25) }
-            else                                  { [System.Drawing.Color]::FromArgb(30, 30, 32) }
+            else                                  { $cWidgetBg }
         $script:OptGlowLevel =
             if ($mem.Pct -ge $script:AlertPct) { 2 }
             elseif ($mem.Pct -ge 70)              { 1 }
@@ -651,7 +700,7 @@ function Update-Fast {
             else { '10 min cooldown; suspends itself if it stops helping' }
         $lblAutoInfo.ForeColor =
             if ($script:AutoOptSuspended) { [System.Drawing.Color]::Orange }
-            else { [System.Drawing.Color]::FromArgb(165, 165, 175) }
+            else { $cSub }
     } catch { }
 }
 
@@ -684,11 +733,11 @@ function Update-Stats {
                 $lblWTrend.ForeColor = [System.Drawing.Color]::FromArgb(90, 200, 120)
             } else {
                 $lblWTrend.Text      = "Stable over last $mins min"
-                $lblWTrend.ForeColor = [System.Drawing.Color]::FromArgb(150, 150, 155)
+                $lblWTrend.ForeColor = $cWidgetSub
             }
         } else {
             $lblWTrend.Text      = 'Trend: gathering data...'
-            $lblWTrend.ForeColor = [System.Drawing.Color]::FromArgb(150, 150, 155)
+            $lblWTrend.ForeColor = $cWidgetSub
         }
         $wSpark.Invalidate()
 
@@ -1165,7 +1214,7 @@ $widget.Size            = New-Object System.Drawing.Size(250, 176)
 $widget.StartPosition   = 'Manual'
 $widget.TopMost         = $true
 $widget.ShowInTaskbar   = $false
-$widget.BackColor       = [System.Drawing.Color]::FromArgb(30, 30, 32)
+$widget.BackColor       = $cWidgetBg
 # Translucency comes from the acrylic glass tint, not layered Opacity -
 # a layered window (Opacity < 1) disables the compositor's blur entirely.
 
@@ -1173,7 +1222,7 @@ $lblWTitle = New-Object System.Windows.Forms.Label
 $lblWTitle.Location  = New-Object System.Drawing.Point(10, 6)
 $lblWTitle.Size      = New-Object System.Drawing.Size(110, 14)
 $lblWTitle.Font      = New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Bold)
-$lblWTitle.ForeColor = [System.Drawing.Color]::FromArgb(150, 150, 155)
+$lblWTitle.ForeColor = $cWidgetSub
 $lblWTitle.Text      = 'MEMORY (RAM)'
 
 $lblWStatus = New-Object System.Windows.Forms.Label
@@ -1202,13 +1251,13 @@ $lblWFree = New-Object System.Windows.Forms.Label
 $lblWFree.Location  = New-Object System.Drawing.Point(102, 40)
 $lblWFree.Size      = New-Object System.Drawing.Size(138, 14)
 $lblWFree.Font      = New-Object System.Drawing.Font('Segoe UI', 7.5)
-$lblWFree.ForeColor = [System.Drawing.Color]::FromArgb(150, 150, 155)
+$lblWFree.ForeColor = $cWidgetSub
 $lblWFree.Text      = 'reading...'
 
 $wBarBg = New-Object System.Windows.Forms.Panel
 $wBarBg.Location  = New-Object System.Drawing.Point(10, 58)
 $wBarBg.Size      = New-Object System.Drawing.Size(230, 8)
-$wBarBg.BackColor = [System.Drawing.Color]::FromArgb(62, 62, 66)
+$wBarBg.BackColor = $cBarBg
 
 $wBarFill = New-Object System.Windows.Forms.Panel
 $wBarFill.Location  = New-Object System.Drawing.Point(1, 1)
@@ -1219,7 +1268,7 @@ $wBarBg.Controls.Add($wBarFill)
 $wSpark = New-Object System.Windows.Forms.Panel
 $wSpark.Location  = New-Object System.Drawing.Point(10, 70)
 $wSpark.Size      = New-Object System.Drawing.Size(230, 34)
-$wSpark.BackColor = [System.Drawing.Color]::FromArgb(38, 38, 42)
+$wSpark.BackColor = $cSparkBg
 
 $lblWTop = New-Object System.Windows.Forms.Label
 $lblWTop.Location  = New-Object System.Drawing.Point(10, 108)
@@ -1232,7 +1281,7 @@ $lblWTrend = New-Object System.Windows.Forms.Label
 $lblWTrend.Location  = New-Object System.Drawing.Point(10, 121)
 $lblWTrend.Size      = New-Object System.Drawing.Size(230, 14)
 $lblWTrend.Font      = New-Object System.Drawing.Font('Segoe UI', 7.5)
-$lblWTrend.ForeColor = [System.Drawing.Color]::FromArgb(150, 150, 155)
+$lblWTrend.ForeColor = $cWidgetSub
 $lblWTrend.Text      = 'Trend: gathering data...'
 
 # Full-width optimize action bar - the widget's hero button, glows by severity
@@ -1241,8 +1290,8 @@ $btnWOpt.Location  = New-Object System.Drawing.Point(10, 139)
 $btnWOpt.Size      = New-Object System.Drawing.Size(230, 30)
 $btnWOpt.FlatStyle = 'Flat'
 $btnWOpt.FlatAppearance.BorderSize = 0
-$btnWOpt.FlatAppearance.MouseOverBackColor = [System.Drawing.Color]::FromArgb(122, 96, 232)
-$btnWOpt.BackColor = [System.Drawing.Color]::FromArgb(104, 78, 214)
+$btnWOpt.FlatAppearance.MouseOverBackColor = $cAccentHover
+$btnWOpt.BackColor = $cAccent
 $btnWOpt.ForeColor = [System.Drawing.Color]::White
 $btnWOpt.Font      = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
 $btnWOpt.Text      = ([string][char]0x26A1) + ' OPTIMIZE RAM'
@@ -1287,7 +1336,7 @@ $wSpark.Add_Paint({
         $y = [int](($h - 2) * (1 - $hist[$i].Pct / 100)) + 1
         $pts.Add((New-Object System.Drawing.Point($x, $y)))
     }
-    $pen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(110, 170, 235), 2)
+    $pen = New-Object System.Drawing.Pen($cSparkLine, 2)
     $g.DrawLines($pen, $pts.ToArray())
     $pen.Dispose()
 })
@@ -1349,14 +1398,14 @@ $dragUp = {
     if ($script:Drag) {
         $script:Drag = $null
         "$($widget.Location.X),$($widget.Location.Y)" | Out-File $script:PosFile
-        Set-Glass $widget 4 $script:GlassHover
+        Set-Glass $widget $script:GlassState $script:GlassHover
     }
 }
 $openFull   = { $form.Show(); $form.Activate() }
-$hoverEnter = { Set-Glass $widget 4 $script:GlassHover }
+$hoverEnter = { Set-Glass $widget $script:GlassState $script:GlassHover }
 $hoverLeave = {
     $p = $widget.PointToClient([System.Windows.Forms.Cursor]::Position)
-    if (-not $widget.ClientRectangle.Contains($p)) { Set-Glass $widget 4 $script:GlassNormal }
+    if (-not $widget.ClientRectangle.Contains($p)) { Set-Glass $widget $script:GlassState $script:GlassNormal }
 }
 
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
@@ -1369,6 +1418,14 @@ $menu.Items[0].Add_Click($openFull)
 $menu.Items[1].Add_Click({ Do-Optimize })
 $menu.Items[2].Add_Click({ Do-Snapshot })
 $menu.Items[4].Add_Click({ $widget.Close() })
+# Style submenu mirrors the monitor's picker (inserted after the index wiring above)
+$styleMenu = New-Object System.Windows.Forms.ToolStripMenuItem('Style')
+foreach ($tn in @($script:Themes.Keys)) {
+    $mi = New-Object System.Windows.Forms.ToolStripMenuItem([string]$tn)
+    $mi.Add_Click({ param($s, $e) Apply-Theme $s.Text })
+    [void]$styleMenu.DropDownItems.Add($mi)
+}
+[void]$menu.Items.Insert(3, $styleMenu)
 
 foreach ($c in @($widget, $lblWTitle, $lblWStatus, $lblWPct, $lblWGB, $lblWFree,
                  $wBarBg, $wBarFill, $wSpark, $lblWTop, $lblWTrend)) {
@@ -1394,13 +1451,66 @@ $notify.Add_MouseDoubleClick($openFull)
 
 if ($script:AppIcon) { $widget.Icon = $script:AppIcon }
 
-# ---------- persisted settings (thresholds + auto-optimize) ----------
+# ---------- style engine ----------
+# Reassigns the live palette (paint handlers pick that up on the next frame)
+# and restyles every control property that was set at construction time.
+$script:SettingStyle = $false
+function Apply-Theme([string]$name) {
+    $t = $script:Themes[$name]
+    if (-not $t) { return }
+    $script:StyleName = $name
+    $script:cBg = $t.Bg; $script:cCard = $t.Card; $script:cText = $t.Text
+    $script:cSub = $t.Sub; $script:cBorder = $t.Border
+    $script:cHeadBg = $t.HeadBg; $script:cHeadText = $t.HeadText
+    $script:cBtnBg = $t.BtnBg; $script:cBtnHover = $t.BtnHover; $script:cBtnBorder = $t.BtnBorder
+    $script:cAccent = $t.Accent; $script:cAccentHover = $t.AccentHover
+    $script:cGraphGrid = $t.GraphGrid; $script:cGraphLine = $t.GraphLine; $script:cGraphFill = $t.GraphFill
+    $script:cAxis = $t.Axis; $script:cStatus = $t.Status
+    $script:cWidgetBg = $t.WidgetBg; $script:cWidgetSub = $t.WidgetSub
+    $script:cBarBg = $t.BarBg; $script:cSparkBg = $t.SparkBg; $script:cSparkLine = $t.SparkLine
+    $script:GlassState  = $t.GlassState
+    $script:GlassNormal = $t.GlassNormal; $script:GlassHover = $t.GlassHover; $script:GlassSolid = $t.GlassSolid
+    # monitor window
+    $form.BackColor = $t.Bg; $form.ForeColor = $t.Text
+    $lblPct.ForeColor = $t.Text
+    foreach ($c in @($lblThr, $lblPctSign, $lblAutoPct, $chkLog, $chkAuto, $lblSug, $lblEv)) { $c.ForeColor = $t.Text }
+    foreach ($c in @($lblDetail, $lblGraphCap, $lblStyle)) { $c.ForeColor = $t.Sub }
+    $lblStatus.ForeColor = $t.Status
+    foreach ($c in @($cboWin, $cboStyle, $numThreshold, $numAuto)) { $c.BackColor = $t.Card; $c.ForeColor = $t.Text }
+    $pnlGraph.BackColor = $t.Card
+    $lv.BackColor = $t.Card; $lv.ForeColor = $t.Text
+    foreach ($c in @($txtSuggest, $txtEvents)) { $c.BackColor = $t.Card; $c.ForeColor = $t.Text }
+    foreach ($b in @($btnSnapshot, $btnOpenLogs, $btnKill, $btnTaskMgr)) { Style-DarkButton $b }
+    Style-DarkButton $btnOptimize $true
+    # widget
+    $widget.BackColor = $t.WidgetBg
+    foreach ($c in @($lblWTitle, $lblWFree, $lblWTrend)) { $c.ForeColor = $t.WidgetSub }
+    $wBarBg.BackColor = $t.BarBg
+    $wSpark.BackColor = $t.SparkBg
+    $btnWOpt.BackColor = $t.Accent
+    $btnWOpt.FlatAppearance.MouseOverBackColor = $t.AccentHover
+    # glass tint/state per style
+    Set-Glass $widget $t.GlassState $t.GlassNormal
+    Set-Glass $form   $t.GlassState $t.GlassNormal
+    # sync both pickers without re-triggering
+    $script:SettingStyle = $true
+    try {
+        $cboStyle.SelectedItem = $name
+        foreach ($mi in $styleMenu.DropDownItems) { $mi.Checked = ($mi.Text -eq $name) }
+    } catch {}
+    $script:SettingStyle = $false
+    $form.Refresh(); $widget.Refresh()
+    Save-Settings
+}
+
+# ---------- persisted settings (thresholds + auto-optimize + style) ----------
 $script:SetFile = Join-Path $script:LogDir 'settings.txt'
 function Save-Settings {
     @(
         "alertPct=$([int]$script:AlertPct)",
         "autoEnabled=$(if ($chkAuto.Checked) { 1 } else { 0 })",
-        "autoPct=$([int]$script:AutoPct)"
+        "autoPct=$([int]$script:AutoPct)",
+        "style=$($script:StyleName)"
     ) | Out-File $script:SetFile -Encoding utf8
 }
 if (Test-Path $script:SetFile) {
@@ -1413,8 +1523,12 @@ if (Test-Path $script:SetFile) {
         if ($kv['alertPct']) { $script:AlertPct = [math]::Min(99, [math]::Max(50, [int]$kv['alertPct'])); $numThreshold.Value = $script:AlertPct }
         if ($kv['autoPct'])  { $script:AutoPct  = [math]::Min(99, [math]::Max(50, [int]$kv['autoPct']));  $numAuto.Value = $script:AutoPct }
         $chkAuto.Checked = ($kv['autoEnabled'] -eq '1')
+        if ($kv['style'] -and $script:Themes[$kv['style']]) { $script:StyleName = $kv['style'] }
     } catch {}
 }
+# Apply the persisted (or default) style once everything exists - this also
+# syncs the picker, the menu checkmarks, and the glass tints.
+Apply-Theme $script:StyleName
 $numThreshold.Add_ValueChanged({ $script:AlertPct = [int]$numThreshold.Value; Save-Settings })
 $numAuto.Add_ValueChanged({ $script:AutoPct = [int]$numAuto.Value; Save-Settings })
 $numThreshold.Add_Enter({ $numThreshold.Select(0, 10) })
@@ -1468,7 +1582,7 @@ $glowTimer.Add_Tick({
         return
     }
     if ($script:OptGlowLevel -eq 0) {
-        $calm = [System.Drawing.Color]::FromArgb(104, 78, 214)
+        $calm = $cAccent
         if ($btnWOpt.BackColor -ne $calm) {
             $btnWOpt.BackColor = $calm
             $btnWOpt.FlatAppearance.BorderSize = 0
@@ -1503,9 +1617,9 @@ $widget.Add_FormClosed({
 # sticks to the handle, so hiding/showing the monitor keeps its glass.
 try {
     [GlassApi]::RoundCorners($widget.Handle)
-    Set-Glass $widget 4 $script:GlassNormal
+    Set-Glass $widget $script:GlassState $script:GlassNormal
     [GlassApi]::DarkTitleBar($form.Handle)
-    Set-Glass $form 4 $script:GlassNormal
+    Set-Glass $form $script:GlassState $script:GlassNormal
 } catch {}
 
 [void]$widget.ShowDialog()
