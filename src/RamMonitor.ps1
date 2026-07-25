@@ -239,7 +239,7 @@ function Style-DarkButton($b, [bool]$accent = $false) {
 
 $form = New-Object System.Windows.Forms.Form
 $form.Text            = 'RAM Monitor'
-$form.Size            = New-Object System.Drawing.Size(560, 940)
+$form.Size            = New-Object System.Drawing.Size(1000, 700)
 $form.StartPosition   = 'CenterScreen'
 $form.FormBorderStyle = 'FixedSingle'
 $form.MaximizeBox     = $false
@@ -356,7 +356,7 @@ $lblAutoInfo.Text      = '10 min cooldown; suspends itself if it stops helping'
 
 $lv = New-Object System.Windows.Forms.ListView
 $lv.Location      = New-Object System.Drawing.Point(20, 296)
-$lv.Size          = New-Object System.Drawing.Size(504, 280)
+$lv.Size          = New-Object System.Drawing.Size(504, 292)
 $lv.View          = 'Details'
 $lv.FullRowSelect = $true
 $lv.GridLines     = $false
@@ -387,17 +387,17 @@ $lv.Add_DrawItem({ param($s, $e) $e.DrawDefault = $true })
 $lv.Add_DrawSubItem({ param($s, $e) $e.DrawDefault = $true })
 
 $btnKill = New-Object System.Windows.Forms.Button
-$btnKill.Location = New-Object System.Drawing.Point(20, 584)
+$btnKill.Location = New-Object System.Drawing.Point(20, 596)
 $btnKill.Size     = New-Object System.Drawing.Size(170, 30)
 $btnKill.Text     = 'End selected process'
 
 $btnTaskMgr = New-Object System.Windows.Forms.Button
-$btnTaskMgr.Location = New-Object System.Drawing.Point(198, 584)
+$btnTaskMgr.Location = New-Object System.Drawing.Point(198, 596)
 $btnTaskMgr.Size     = New-Object System.Drawing.Size(150, 30)
 $btnTaskMgr.Text     = 'Open Task Manager'
 
 $btnOptimize = New-Object System.Windows.Forms.Button
-$btnOptimize.Location = New-Object System.Drawing.Point(356, 584)
+$btnOptimize.Location = New-Object System.Drawing.Point(356, 596)
 $btnOptimize.Size     = New-Object System.Drawing.Size(168, 30)
 $btnOptimize.Font     = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)
 $btnOptimize.Text     = 'Optimize RAM'
@@ -409,15 +409,15 @@ Style-DarkButton $btnTaskMgr
 Style-DarkButton $btnOptimize $true
 
 $lblSug = New-Object System.Windows.Forms.Label
-$lblSug.Location  = New-Object System.Drawing.Point(20, 624)
+$lblSug.Location  = New-Object System.Drawing.Point(544, 12)
 $lblSug.Size      = New-Object System.Drawing.Size(250, 18)
 $lblSug.Font      = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)
 $lblSug.ForeColor = $cText
 $lblSug.Text      = 'Suggested actions'
 
 $txtSuggest = New-Object System.Windows.Forms.TextBox
-$txtSuggest.Location    = New-Object System.Drawing.Point(20, 644)
-$txtSuggest.Size        = New-Object System.Drawing.Size(504, 88)
+$txtSuggest.Location    = New-Object System.Drawing.Point(544, 32)
+$txtSuggest.Size        = New-Object System.Drawing.Size(420, 170)
 $txtSuggest.Multiline   = $true
 $txtSuggest.ReadOnly    = $true
 $txtSuggest.ScrollBars  = 'Vertical'
@@ -427,15 +427,15 @@ $txtSuggest.ForeColor   = $cText
 $txtSuggest.BorderStyle = 'FixedSingle'
 
 $lblEv = New-Object System.Windows.Forms.Label
-$lblEv.Location  = New-Object System.Drawing.Point(20, 740)
+$lblEv.Location  = New-Object System.Drawing.Point(544, 214)
 $lblEv.Size      = New-Object System.Drawing.Size(250, 18)
 $lblEv.Font      = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)
 $lblEv.ForeColor = $cText
 $lblEv.Text      = 'Alerts and events'
 
 $txtEvents = New-Object System.Windows.Forms.TextBox
-$txtEvents.Location    = New-Object System.Drawing.Point(20, 760)
-$txtEvents.Size        = New-Object System.Drawing.Size(504, 99)
+$txtEvents.Location    = New-Object System.Drawing.Point(544, 234)
+$txtEvents.Size        = New-Object System.Drawing.Size(420, 392)
 $txtEvents.Multiline   = $true
 $txtEvents.ReadOnly    = $true
 $txtEvents.ScrollBars  = 'Vertical'
@@ -445,8 +445,8 @@ $txtEvents.ForeColor   = $cText
 $txtEvents.BorderStyle = 'FixedSingle'
 
 $lblStatus = New-Object System.Windows.Forms.Label
-$lblStatus.Location  = New-Object System.Drawing.Point(20, 865)
-$lblStatus.Size      = New-Object System.Drawing.Size(504, 16)
+$lblStatus.Location  = New-Object System.Drawing.Point(20, 636)
+$lblStatus.Size      = New-Object System.Drawing.Size(944, 16)
 $lblStatus.ForeColor = [System.Drawing.Color]::FromArgb(140, 140, 150)
 $lblStatus.Text      = 'Tick = protected from Optimize  |  Ctrl+Alt+O = optimize anywhere  |  X returns to widget'
 
