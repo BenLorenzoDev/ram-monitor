@@ -147,6 +147,7 @@ Single-file WinForms app (`src/RamMonitor.ps1`, no compilation, no modules):
 - **Hotkey** — a tiny `NativeWindow` subclass (compiled inline via `Add-Type`) registers `Ctrl+Alt+O` with `user32!RegisterHotKey`.
 - **Graphs** — custom GDI+ `Paint` handlers (double-buffered), no charting libraries.
 - **Widget** — borderless `TopMost` form: manual drag handling, tray icon, balloon notifications, context menu. The widget is the app host; the full monitor hides (not closes) back to it.
+- **Glass** — real acrylic blur-behind from the desktop compositor (the same effect Task Manager and Windows Terminal use), enabled per window via `SetWindowCompositionAttribute`; rounded corners and the dark title bar via `DwmSetWindowAttribute`. While dragging, the widget swaps to a solid tint (re-blurring a moving window lags) and back to glass on release. Falls back silently to the plain dark theme where the API is unavailable.
 - **Icon** — generated programmatically; `tools/make-icon.ps1` rebuilds `ram-monitor.ico` (8 sizes, 16–256 px).
 
 ## Repo layout

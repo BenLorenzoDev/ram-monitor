@@ -52,7 +52,45 @@ public static class MemApi {
     }
 }
 '@
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class GlassApi {
+    [StructLayout(LayoutKind.Sequential)]
+    struct AccentPolicy { public int AccentState; public int AccentFlags; public uint GradientColor; public int AnimationId; }
+    [StructLayout(LayoutKind.Sequential)]
+    struct WinCompAttrData { public int Attribute; public IntPtr Data; public int SizeOfData; }
+    [DllImport("user32.dll")]
+    static extern int SetWindowCompositionAttribute(IntPtr hwnd, ref WinCompAttrData data);
+    [DllImport("dwmapi.dll")]
+    static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+    // state: 0 = off, 1 = solid tint, 3 = blur-behind, 4 = acrylic. tint is AABBGGRR.
+    public static void SetAccent(IntPtr hwnd, int state, uint tint) {
+        AccentPolicy ap = new AccentPolicy();
+        ap.AccentState = state; ap.AccentFlags = 2; ap.GradientColor = tint; ap.AnimationId = 0;
+        int size = Marshal.SizeOf(ap);
+        IntPtr p = Marshal.AllocHGlobal(size);
+        Marshal.StructureToPtr(ap, p, false);
+        WinCompAttrData d = new WinCompAttrData();
+        d.Attribute = 19; d.Data = p; d.SizeOfData = size;   // WCA_ACCENT_POLICY
+        SetWindowCompositionAttribute(hwnd, ref d);
+        Marshal.FreeHGlobal(p);
+    }
+    public static void RoundCorners(IntPtr hwnd) { int v = 2; DwmSetWindowAttribute(hwnd, 33, ref v, 4); }
+    public static void DarkTitleBar(IntPtr hwnd) { int v = 1; DwmSetWindowAttribute(hwnd, 20, ref v, 4); }
+}
+'@
 [System.Windows.Forms.Application]::EnableVisualStyles()
+
+# Glassmorphism: real acrylic blur-behind from the desktop compositor (same
+# effect Task Manager / Terminal use). All calls are try/catch no-ops on
+# systems without the API, leaving the plain dark theme.
+$script:GlassNormal = [uint32]0xB2281E1E   # ~70% dark tint over the blur (AABBGGRR)
+$script:GlassHover  = [uint32]0xD2281E1E   # a touch more solid under the cursor
+$script:GlassSolid  = [uint32]0xFF2C2426   # fully opaque - used while dragging (blur-while-drag lags)
+function Set-Glass([System.Windows.Forms.Form]$f, [int]$state, [uint32]$tint) {
+    try { [GlassApi]::SetAccent($f.Handle, $state, $tint) } catch {}
+}
 
 $script:LogDir   = Join-Path $env:USERPROFILE 'ram-monitor'
 if (-not (Test-Path $script:LogDir)) { New-Item -ItemType Directory -Path $script:LogDir | Out-Null }
@@ -1128,7 +1166,8 @@ $widget.StartPosition   = 'Manual'
 $widget.TopMost         = $true
 $widget.ShowInTaskbar   = $false
 $widget.BackColor       = [System.Drawing.Color]::FromArgb(30, 30, 32)
-$widget.Opacity         = 0.92
+# Translucency comes from the acrylic glass tint, not layered Opacity -
+# a layered window (Opacity < 1) disables the compositor's blur entirely.
 
 $lblWTitle = New-Object System.Windows.Forms.Label
 $lblWTitle.Location  = New-Object System.Drawing.Point(10, 6)
@@ -1287,12 +1326,15 @@ $loc = New-Object System.Drawing.Point(
     ([math]::Min([math]::Max($loc.Y, $wa2.Top),  $wa2.Bottom - $widget.Height)))
 $widget.Location = $loc
 
-# Drag to move (no title bar), remember position, hover = fully opaque
+# Drag to move (no title bar), remember position, hover = more solid glass.
+# While dragging, the blur is swapped for a solid tint: moving an acrylic
+# window forces the compositor to re-blur every frame, which lags.
 $script:Drag = $null
 $dragDown = {
     param($s, $e)
     if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Left) {
         $script:Drag = @{ Cursor = [System.Windows.Forms.Cursor]::Position; Form = $widget.Location }
+        Set-Glass $widget 1 $script:GlassSolid
     }
 }
 $dragMove = {
@@ -1307,13 +1349,14 @@ $dragUp = {
     if ($script:Drag) {
         $script:Drag = $null
         "$($widget.Location.X),$($widget.Location.Y)" | Out-File $script:PosFile
+        Set-Glass $widget 4 $script:GlassHover
     }
 }
 $openFull   = { $form.Show(); $form.Activate() }
-$hoverEnter = { $widget.Opacity = 1.0 }
+$hoverEnter = { Set-Glass $widget 4 $script:GlassHover }
 $hoverLeave = {
     $p = $widget.PointToClient([System.Windows.Forms.Cursor]::Position)
-    if (-not $widget.ClientRectangle.Contains($p)) { $widget.Opacity = 0.92 }
+    if (-not $widget.ClientRectangle.Contains($p)) { Set-Glass $widget 4 $script:GlassNormal }
 }
 
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
@@ -1456,4 +1499,13 @@ $widget.Add_FormClosed({
 })
 
 # Widget is the app host: closing it (right-click > Exit) ends monitoring
+# Glass on. Applied to the window handles before they are shown; the accent
+# sticks to the handle, so hiding/showing the monitor keeps its glass.
+try {
+    [GlassApi]::RoundCorners($widget.Handle)
+    Set-Glass $widget 4 $script:GlassNormal
+    [GlassApi]::DarkTitleBar($form.Handle)
+    Set-Glass $form 4 $script:GlassNormal
+} catch {}
+
 [void]$widget.ShowDialog()
