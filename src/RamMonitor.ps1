@@ -291,6 +291,10 @@ $script:Themes = [ordered]@{
         Axis = C 140 140 150; Status = C 140 140 150
         WidgetBg = C 30 30 32; WidgetSub = C 150 150 155
         BarBg = C 62 62 66;   SparkBg = C 38 38 42;  SparkLine = C 110 170 235
+        StatusOk = C 90 200 120; StatusWarn = C 255 165 0; StatusCrit = C 235 80 80
+        AlertLine = C 220 90 90 170; WidgetAlertBg = C 70 25 25
+        VerdictOk = 'OK'; VerdictWarn = 'HIGH'; VerdictCrit = 'CRITICAL'
+        GlowSoft = $false
         GlassState = 4
         GlassNormal = HexTint 'B2281E1E'; GlassHover = HexTint 'D2281E1E'; GlassSolid = HexTint 'FF2C2426'
     }
@@ -307,8 +311,33 @@ $script:Themes = [ordered]@{
         Axis = C 140 140 150; Status = C 140 140 150
         WidgetBg = C 30 30 32; WidgetSub = C 150 150 155
         BarBg = C 62 62 66;   SparkBg = C 38 38 42;  SparkLine = C 110 170 235
+        StatusOk = C 90 200 120; StatusWarn = C 255 165 0; StatusCrit = C 235 80 80
+        AlertLine = C 220 90 90 170; WidgetAlertBg = C 70 25 25
+        VerdictOk = 'OK'; VerdictWarn = 'HIGH'; VerdictCrit = 'CRITICAL'
+        GlowSoft = $false
         GlassState = 0
         GlassNormal = HexTint 'FF24201E'; GlassHover = HexTint 'FF24201E'; GlassSolid = HexTint 'FF2C2426'
+    }
+    # Emotionally-intelligent style: a low-arousal sage/teal palette,
+    # supportive wording ("Getting busy" instead of HIGH), warm amber guidance
+    # instead of red alarm, and a slow breathing glow instead of flashing.
+    # Same information, delivered without spiking the user's stress.
+    'Calm' = @{
+        Bg = C 28 32 34;      Card = C 36 41 43;    Text = C 226 232 228
+        Sub = C 148 160 155;  Border = C 62 72 70
+        HeadBg = C 44 51 52;  HeadText = C 190 200 195
+        BtnBg = C 48 56 56;   BtnHover = C 60 70 69; BtnBorder = C 74 86 83
+        Accent = C 64 145 120; AccentHover = C 80 168 140
+        GraphGrid = C 44 51 52; GraphLine = C 96 190 160; GraphFill = C 96 190 160 50
+        Axis = C 140 152 147; Status = C 140 152 147
+        WidgetBg = C 26 30 31; WidgetSub = C 140 152 147
+        BarBg = C 52 60 60;   SparkBg = C 32 37 38;  SparkLine = C 96 190 160
+        StatusOk = C 110 200 160; StatusWarn = C 235 185 90; StatusCrit = C 240 130 110
+        AlertLine = C 235 185 90 150; WidgetAlertBg = C 56 44 28
+        VerdictOk = 'All good'; VerdictWarn = 'Getting busy'; VerdictCrit = 'Attention'
+        GlowSoft = $true
+        GlassState = 4
+        GlassNormal = HexTint 'B21D1E1A'; GlassHover = HexTint 'D21D1E1A'; GlassSolid = HexTint 'FF262B29'
     }
 }
 $script:StyleName = 'Midnight Glass'
@@ -324,6 +353,10 @@ $cGraphGrid = $t0.GraphGrid; $cGraphLine = $t0.GraphLine; $cGraphFill = $t0.Grap
 $cAxis = $t0.Axis; $cStatus = $t0.Status
 $cWidgetBg = $t0.WidgetBg; $cWidgetSub = $t0.WidgetSub
 $cBarBg = $t0.BarBg; $cSparkBg = $t0.SparkBg; $cSparkLine = $t0.SparkLine
+$cStatusOk = $t0.StatusOk; $cStatusWarn = $t0.StatusWarn; $cStatusCrit = $t0.StatusCrit
+$cAlertLine = $t0.AlertLine; $cWidgetAlertBg = $t0.WidgetAlertBg
+$script:VerdictOk = $t0.VerdictOk; $script:VerdictWarn = $t0.VerdictWarn; $script:VerdictCrit = $t0.VerdictCrit
+$script:GlowSoft   = $t0.GlowSoft
 $script:GlassState = $t0.GlassState
 
 function Style-DarkButton($b, [bool]$accent = $false) {
@@ -594,7 +627,7 @@ $pnlGraph.Add_Paint({
     foreach ($i in 1..9) { $gx = [int]($w * $i / 10); $g.DrawLine($gridPen, $gx, 0, $gx, $h) }
     $gridPen.Dispose()
     $ty = [int]($h * (1 - [int]$script:AlertPct / 100))
-    $tpen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(170, 220, 90, 90), 1)
+    $tpen = New-Object System.Drawing.Pen($cAlertLine, 1)
     $tpen.DashStyle = [System.Drawing.Drawing2D.DashStyle]::Dash
     $g.DrawLine($tpen, 0, $ty, $w, $ty)
     $tpen.Dispose()
@@ -670,9 +703,9 @@ function Update-Fast {
         $lblDetail.Text = "$($mem.UsedGB) GB of $($mem.TotalGB) GB in use ($([math]::Round($mem.TotalGB - $mem.UsedGB, 1)) GB free)"
 
         $wColor =
-            if ($mem.Pct -ge $script:AlertPct) { [System.Drawing.Color]::FromArgb(235, 80, 80) }
-            elseif ($mem.Pct -ge 70)              { [System.Drawing.Color]::Orange }
-            else                                  { [System.Drawing.Color]::FromArgb(90, 200, 120) }
+            if ($mem.Pct -ge $script:AlertPct) { $cStatusCrit }
+            elseif ($mem.Pct -ge 70)              { $cStatusWarn }
+            else                                  { $cStatusOk }
         $freeGB = [math]::Round($mem.TotalGB - $mem.UsedGB, 1)
         $lblPct.ForeColor   = $wColor
         $lblWPct.Text       = "$([math]::Round($mem.Pct))%"
@@ -680,14 +713,14 @@ function Update-Fast {
         $lblWGB.Text        = "$($mem.UsedGB) / $($mem.TotalGB) GB"
         $lblWFree.Text      = "$freeGB GB still free"
         $lblWStatus.Text    =
-            if ($mem.Pct -ge $script:AlertPct) { 'CRITICAL' }
-            elseif ($mem.Pct -ge 70)              { 'HIGH' }
-            else                                  { 'OK' }
+            if ($mem.Pct -ge $script:AlertPct) { $script:VerdictCrit }
+            elseif ($mem.Pct -ge 70)              { $script:VerdictWarn }
+            else                                  { $script:VerdictOk }
         $lblWStatus.ForeColor = $wColor
         $wBarFill.BackColor = $wColor
         $wBarFill.Width     = [int][math]::Max(2, 228 * [math]::Min(100, $mem.Pct) / 100)
         $widget.BackColor   =
-            if ($mem.Pct -ge $script:AlertPct) { [System.Drawing.Color]::FromArgb(70, 25, 25) }
+            if ($mem.Pct -ge $script:AlertPct) { $cWidgetAlertBg }
             else                                  { $cWidgetBg }
         $script:OptGlowLevel =
             if ($mem.Pct -ge $script:AlertPct) { 2 }
@@ -730,7 +763,7 @@ function Update-Fast {
             if ($script:AutoOptSuspended) { 'SUSPENDED - not helping; restart the leaking app (see events)' }
             else { '10 min cooldown; suspends itself if it stops helping' }
         $lblAutoInfo.ForeColor =
-            if ($script:AutoOptSuspended) { [System.Drawing.Color]::Orange }
+            if ($script:AutoOptSuspended) { $cStatusWarn }
             else { $cSub }
     } catch { }
 }
@@ -758,10 +791,10 @@ function Update-Stats {
             $dGB  = [math]::Round($mem.UsedGB - $trendRef.UsedGB, 1)
             if ($dGB -ge 0.3) {
                 $lblWTrend.Text      = "Rising: +$dGB GB in last $mins min"
-                $lblWTrend.ForeColor = [System.Drawing.Color]::Orange
+                $lblWTrend.ForeColor = $cStatusWarn
             } elseif ($dGB -le -0.3) {
                 $lblWTrend.Text      = "Falling: $dGB GB in last $mins min"
-                $lblWTrend.ForeColor = [System.Drawing.Color]::FromArgb(90, 200, 120)
+                $lblWTrend.ForeColor = $cStatusOk
             } else {
                 $lblWTrend.Text      = "Stable over last $mins min"
                 $lblWTrend.ForeColor = $cWidgetSub
@@ -1356,7 +1389,7 @@ $wSpark.Add_Paint({
     $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
     $w = $s.Width; $h = $s.Height
     $ty = [int](($h - 2) * (1 - [int]$script:AlertPct / 100)) + 1
-    $tpen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(150, 200, 80, 80), 1)
+    $tpen = New-Object System.Drawing.Pen($cAlertLine, 1)
     $tpen.DashStyle = [System.Drawing.Drawing2D.DashStyle]::Dash
     $g.DrawLine($tpen, 0, $ty, $w, $ty)
     $tpen.Dispose()
@@ -1538,6 +1571,10 @@ function Apply-Theme([string]$name) {
     $script:cAxis = $t.Axis; $script:cStatus = $t.Status
     $script:cWidgetBg = $t.WidgetBg; $script:cWidgetSub = $t.WidgetSub
     $script:cBarBg = $t.BarBg; $script:cSparkBg = $t.SparkBg; $script:cSparkLine = $t.SparkLine
+    $script:cStatusOk = $t.StatusOk; $script:cStatusWarn = $t.StatusWarn; $script:cStatusCrit = $t.StatusCrit
+    $script:cAlertLine = $t.AlertLine; $script:cWidgetAlertBg = $t.WidgetAlertBg
+    $script:VerdictOk = $t.VerdictOk; $script:VerdictWarn = $t.VerdictWarn; $script:VerdictCrit = $t.VerdictCrit
+    $script:GlowSoft    = $t.GlowSoft
     $script:GlassState  = $t.GlassState
     $script:GlassNormal = $t.GlassNormal; $script:GlassHover = $t.GlassHover; $script:GlassSolid = $t.GlassSolid
     # monitor window
@@ -1675,6 +1712,19 @@ $glowTimer.Add_Tick({
             $btnWOpt.BackColor = $calm
             $btnWOpt.FlatAppearance.BorderSize = 0
         }
+        return
+    }
+    if ($script:GlowSoft) {
+        # Emotionally-intelligent styles breathe slowly toward the status
+        # color instead of flashing - urgency without alarm.
+        $script:GlowPhase += $(if ($script:OptGlowLevel -eq 2) { 0.16 } else { 0.10 })
+        $t = 0.5 + 0.5 * [math]::Sin($script:GlowPhase)
+        $target = if ($script:OptGlowLevel -eq 2) { $cStatusCrit } else { $cStatusWarn }
+        $btnWOpt.BackColor = [System.Drawing.Color]::FromArgb(
+            [int]($cAccent.R + ($target.R - $cAccent.R) * $t),
+            [int]($cAccent.G + ($target.G - $cAccent.G) * $t),
+            [int]($cAccent.B + ($target.B - $cAccent.B) * $t))
+        $btnWOpt.FlatAppearance.BorderSize = 0
         return
     }
     $script:GlowPhase += $(if ($script:OptGlowLevel -eq 2) { 0.55 } else { 0.28 })
