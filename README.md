@@ -16,41 +16,138 @@
 
 ---
 
-## Why
+## Run it (60 seconds)
 
-Windows Task Manager tells you how much RAM is in use *right now*, but not **what caused the spike five minutes ago** while you were busy working. RAM Monitor watches continuously, and when usage crosses your alert threshold it automatically diffs the last few minutes of per-process history and tells you exactly which process ballooned — then gives you one-click, guard-railed ways to deal with it.
+Works on any Windows 10 / 11 machine. No install, no admin rights, no internet needed.
 
-## Features
+1. **Get the code** — either:
+   - Click **Code → Download ZIP** on this page, then extract it anywhere, **or**
+   - `git clone https://github.com/BenLorenzoDev/ram-monitor.git`
+2. **Double-click `Start-RAM-Monitor.bat`** (in the folder you just extracted/cloned).
+3. Done — the widget appears in the **top-right corner** of your screen and starts monitoring immediately.
 
-- **Always-on-top mini widget** — a small (232×134) glanceable panel: usage %, status verdict (OK / HIGH / CRITICAL), GB used / free, live sparkline, top 2 memory consumers by name, and a trend line ("Rising: +1.4 GB in last 5 min"). Draggable anywhere, remembers its position, semi-transparent until you hover.
-- **Spike alerts with auto-analysis** — when usage crosses your threshold (default 85%), you get a Windows notification naming the *likely cause*, computed by diffing per-process memory against ~5 minutes earlier: not just "who is biggest" but "who grew".
-- **One-click Optimize** (⚡) — trims unused working-set memory from every process using the Windows `EmptyWorkingSet` API. **Never closes an app** and never loses work. Results are measured (RAM % before → after, MB freed) and logged.
-- **Auto-optimize** — optional hands-free mode: when usage crosses a level you set (default 80%), the app optimizes by itself — built for the moment your system is so laggy you can't even reach the button. Guard-railed: 10-minute cooldown, and if two consecutive trims bring no lasting relief it **suspends itself and names the leaking process** instead of trim-storming.
-- **Global hotkey `Ctrl+Alt+O`** — optimize from the keyboard, from any app. Keyboards stay responsive when the mouse pointer is crawling.
-- **Exceptions list** — tick any process in the full monitor and Optimize will skip it entirely (e.g. protect your browser or IDE from even the harmless trim). Persisted across restarts.
-- **Task Manager-style full monitor** — dark themed window with a 1-second live area graph (60 s / 5 min / 10 min windows), top-15 process list, guard-railed "End process", contextual suggestions, and an event log.
-- **Everything is logged for later analysis** — usage curve, spike snapshots with analysis, and optimize history, all as plain CSV/text files.
+**To stop it:** right-click the widget → **Exit RAM Monitor**. (If it's ever unresponsive, double-click `Stop-RAM-Monitor.bat`.)
 
-## Requirements
+**Start with Windows / pin it:** create a shortcut to
+`powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File <path>\src\RamMonitor.ps1`,
+set its icon to `ram-monitor.ico`, and drop it on your desktop or in your Startup folder (`Win+R` → `shell:startup`).
 
-- Windows 10 / 11
-- Windows PowerShell 5.1 (preinstalled on every Windows 10/11 machine)
-- No admin rights, no modules, no internet access needed
+## What it does
 
-## Quick start
+- **Watches your RAM every second** in a small always-on-top widget: usage %, OK / HIGH / CRITICAL verdict, GB used and free, live sparkline, top consumers, and trend.
+- **Tells you what caused a spike** — when usage crosses your alert level it diffs the last ~5 minutes of per-process history and names *who grew*, not just who is biggest.
+- **Frees memory safely with one click** (⚡ Optimize) — trims unused working-set memory from every process. **It never closes an app and never loses your work.**
+- **Lets you protect apps** — tick any process in the monitor and Optimize will always skip it.
+- **Can optimize itself** — optional auto-optimize fires at a level you set, built for the moment your PC is too laggy to even reach the button. Guard-railed so it can't spam itself.
+- **Logs everything** to plain CSV/text files so you can analyze usage and optimize history later.
+
+## How to operate
+
+### The widget
+
+| You do | It does |
+|---|---|
+| **Drag** it | Moves anywhere; the position is remembered |
+| **Hover** any element | Explanatory tooltip |
+| **Double-click** it | Opens the full monitor window |
+| **Right-click** it | Menu: Open full monitor · Optimize RAM now · Snapshot now · Exit |
+| Press **⚡ OPTIMIZE RAM** | One-tap optimize (respects your protected apps) |
+| Press **`Ctrl+Alt+O`** (from *any* app) | Same optimize, from the keyboard — no mouse needed |
+
+Reading it at a glance:
+
+| Element | Meaning |
+|---|---|
+| **Status** (top-right) | `OK` (green) / `HIGH` (orange, ≥70%) / `CRITICAL` (red, ≥ your alert level) |
+| **Big %** + GB lines | Share of physical RAM in use, `used / total GB`, and how much is still free |
+| **Bar + sparkline** | Usage now, and over the last 10 minutes; the dashed red line is your alert level |
+| **Top:** line | The two biggest memory consumers right now |
+| **Trend** line | `Rising / Falling / Stable` with the GB change over ~5 minutes |
+| **⚡ button glow** | Calm violet = fine · pulsing orange = 70%+ · fast red pulse = past your alert level. When it's flashing, it's worth a tap |
+
+The whole widget tints red when you cross your alert threshold.
+
+> Note: apps in true fullscreen (games, F11 video) draw over everything, including this widget. Normal maximized windows do not.
+
+### The full monitor
+
+Double-click the widget to open it. Two-column, Task Manager-style dark window — closing it (X) just returns you to the widget, the app keeps running.
+
+**Left column — live data:**
+
+- **Graph** — updates every second; pick the time window (60 s / 5 min / 10 min); your alert level is the dashed red line.
+- **Alert at [85]%** — when usage crosses this, you get a Windows notification with the spike analysis.
+- **Auto-optimize at [80]%** — tick to enable hands-free optimizing (see below).
+- **Process list** — top 15 memory consumers, grouped by app (all Chrome processes = one row), refreshed every 3 s. **Tick a row's checkbox to protect that app from Optimize** — your picks are saved.
+- **End selected process** — closes all instances of the selected app after showing you how much RAM you'll get back. System processes and antivirus are refused; `explorer` gets a safe restart offer instead.
+- **Open Task Manager** / **Optimize RAM** / **Snapshot** / **Open logs** buttons.
+
+**Right column — what to do and what happened:**
+
+- **Suggested actions** — live advice based on what is actually eating memory (browser → close tabs; dev server climbing → restart it; Docker/WSL idle → `wsl --shutdown`; antivirus scanning → leave it alone). Switches to urgent phrasing above your alert level.
+- **Alerts and events** — tall running log of every spike (with its analysis), optimize (with per-app results), snapshot, and ended process. Recent history is preloaded when you open the app.
+
+### Optimizing RAM — what actually happens
+
+Trigger it any way you like: widget ⚡, `Ctrl+Alt+O`, right-click menu, or the monitor's button. Every time:
+
+1. All running processes are enumerated.
+2. Windows system processes, antivirus, the app itself, and **everything you've ticked as protected** are skipped.
+3. Each remaining process's *working set* is trimmed — memory held but not actively used is released. The app keeps running; nothing closes; no work is lost.
+4. The result is measured and reported: notification + event-log entry + CSV rows. Example: `RAM 69% -> 58%, freed ~5.8 GB across 148 processes · Top freed: chrome 850 MB, Discord 320 MB`.
+
+Honest caveats: a just-trimmed app can be briefly sluggish while it reloads what it needs (that's what protecting it is for), and freed memory partially refills as apps touch their data again. Optimize is quick relief before launching something heavy — if one process climbs back relentlessly, that's a leak; the analysis will name it, and the durable fix is restarting that app.
+
+### Auto-optimize
+
+Tick **Auto-optimize at [80]%** in the monitor (80% by default — *below* the alert level, because trimming works best before pressure peaks). Guardrails:
+
+1. **Cooldown** — auto-runs are at least 10 minutes apart.
+2. **Self-suspend** — if two consecutive auto-runs bring no lasting relief, something is leaking; it suspends itself and names the fastest-growing process so you know what to restart.
+3. **Auto re-arm** — once usage falls well below the trigger, it arms again.
+
+Auto-runs are logged with `trigger=auto` so you can audit exactly what it did.
+
+### Your data
+
+Everything is logged next to the script (personal, gitignored):
+
+| File | Contents |
+|---|---|
+| `ram-usage.csv` | Usage curve: `timestamp, usedPercent, usedGB, totalGB` every 3 s |
+| `ram-spikes.log` | Process-table snapshot + growth analysis for every alert / manual snapshot |
+| `optimize-history.csv` | One row per optimize: freed MB, RAM % before/after, protected apps, manual/auto |
+| `optimize-details.csv` | Per-process results for every optimize — which apps actually release memory |
+| `optimize-exceptions.txt` | Your protected apps, one per line |
+| `settings.txt` / `widget-position.txt` | Your thresholds, auto-optimize toggle, widget position |
+
+---
+
+## Why this exists
+
+Task Manager tells you how much RAM is in use *right now*, but not **what caused the spike five minutes ago** while you were busy working. RAM Monitor watches continuously, keeps a rolling per-process history, and when usage crosses your threshold it tells you exactly which process ballooned:
 
 ```
-git clone https://github.com/BenLorenzoDev/ram-monitor.git
-cd ram-monitor
+===== 2026-07-25 00:41:03 | ALERT >= 85% | used 87.2% (27.4 / 31.4 GB) =====
+  Auto-analysis: RAM 62% -> 87% over the last 6 min.
+  Biggest growth in that window:
+    chrome: +2,100 MB (now 4,900 MB)
+    node: +900 MB (now 1,400 MB)
+    Code: +800 MB (now 800 MB) (started in that window)
 ```
 
-Double-click **`Start-RAM-Monitor.bat`** — the widget appears in the top-right corner of your screen.
+The Windows notification carries the headline: *"Memory at 87% — likely cause: chrome +2.1 GB"*.
 
-To stop it: right-click the widget → **Exit RAM Monitor** (or double-click `Stop-RAM-Monitor.bat` if it's ever unresponsive).
+## How it works
 
-Optional: create a desktop/taskbar shortcut pointing to
-`powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File <path>\src\RamMonitor.ps1`
-and set its icon to `ram-monitor.ico`.
+Single-file WinForms app (`src/RamMonitor.ps1`, no compilation, no modules):
+
+- **Two refresh lanes** — a 1-second fast path reads memory via a direct Win32 call (`GlobalMemoryStatusEx`, ~0.1 ms) and redraws the graph/widget; a 3-second slow path does the heavier work: per-process totals, list rebuild, suggestions, CSV logging, alert checks. Steady-state CPU cost is negligible.
+- **Optimize** — P/Invokes `psapi.dll!EmptyWorkingSet` per process; access-denied processes are silently skipped (that's Windows protecting them, which is fine).
+- **Hotkey** — a tiny `NativeWindow` subclass (compiled inline via `Add-Type`) registers `Ctrl+Alt+O` with `user32!RegisterHotKey`.
+- **Graphs** — custom GDI+ `Paint` handlers (double-buffered), no charting libraries.
+- **Widget** — borderless `TopMost` form: manual drag handling, tray icon, balloon notifications, context menu. The widget is the app host; the full monitor hides (not closes) back to it.
+- **Icon** — generated programmatically; `tools/make-icon.ps1` rebuilds `ram-monitor.ico` (8 sizes, 16–256 px).
 
 ## Repo layout
 
@@ -66,107 +163,12 @@ and set its icon to `ram-monitor.ico`.
 
 `tools/build-exe.ps1` compiles `tools/launcher.cs` into a small `RAM Monitor.exe` using the C# compiler bundled with Windows — double-clickable, no console, proper icon. **Fair warning:** an unsigned exe that spawns hidden PowerShell matches the behavior profile of malware droppers, so most antivirus products will quarantine it unless you add a folder exclusion *first*. The `.bat` / shortcut route avoids that entirely, which is why the repo doesn't ship a prebuilt exe.
 
-## The widget
-
-| Element | Meaning |
-|---|---|
-| **Status** (top-right) | `OK` (green) / `HIGH` (orange, ≥70%) / `CRITICAL` (red, ≥ alert threshold) |
-| **Big %** + GB line | Share of physical RAM in use, `used / total GB`, and how much is still free |
-| **Color bar** | Same value as the %, as a bar |
-| **Sparkline** | Usage over the last 10 minutes; the dashed red line is your alert threshold |
-| **Top:** line | The two biggest memory consumers right now, by name |
-| **Trend** line | `Rising / Falling / Stable` with the GB delta over the last ~5 minutes |
-| **⚡ button** | One-tap Optimize (respects your exceptions list). Glows by severity: calm violet when fine, pulsing orange at 70%+, fast red pulse past your alert threshold — when it's flashing, it's worth a tap |
-
-Interactions: **drag** to move (position is remembered) · **double-click** to open the full monitor · **right-click** for the menu (Open full monitor / Optimize RAM now / Snapshot now / Exit). The whole widget tints red when you cross the threshold. Hover any element for an explanatory tooltip.
-
-> Note: apps in true fullscreen (games, F11 video) draw over everything, including this widget. Normal maximized windows do not.
-
-## The full monitor
-
-Open it by double-clicking the widget. Dark, Task Manager-style window with:
-
-- **Live graph** — samples every second; selectable window (60 seconds / 5 minutes / 10 minutes); gridlines; your alert threshold drawn as a dashed red line.
-- **Alert threshold** — adjustable 50–99%.
-- **Auto-optimize row** — tick `Auto-optimize at [80]%` for hands-free trimming. The status text next to it tells you if it has suspended itself (leak detected). Thresholds and the toggle persist across restarts (`settings.txt`).
-- **Process list** — top 15 memory consumers, grouped by process name (so all of Chrome's processes count as one row), refreshed every 3 seconds. **Tick a row to protect that app from Optimize.**
-- **End selected process** — kills all instances of the selected app after a confirmation showing how much RAM you'll get back. Guard-railed: Windows system processes and antivirus are refused; selecting `explorer` offers a safe Explorer restart instead; you're warned before killing your own terminal.
-- **Open Task Manager** — one click.
-- **Optimize RAM** — same action as the widget's ⚡ (see below).
-- **Suggested actions** — live, context-aware advice based on what is actually consuming memory (browser → close tabs; dev server climbing → restart it, it leaks; Docker/WSL → `wsl --shutdown`; antivirus scanning → leave it alone). Switches to urgent "act now" phrasing above the threshold.
-- **Alerts and events** — running log of spikes (with analysis), optimizes, snapshots, and killed processes. Recent optimize history is preloaded on startup.
-- **Snapshot** — saves the current process table + analysis to `ram-spikes.log` on demand.
-
-## Optimize: what it actually does
-
-Clicking Optimize (widget ⚡, right-click menu, the button in the full monitor, or `Ctrl+Alt+O` from anywhere):
-
-1. Enumerates all running processes.
-2. Skips Windows system processes (kernel helpers, session services, audio, desktop rendering), antivirus, itself, and **everything you've ticked as an exception**.
-3. Asks Windows to trim each remaining process's *working set* — memory it holds but isn't actively using gets dropped or paged out. The app keeps running; nothing closes; no work is lost.
-4. Measures the result and reports it: notification + event-log line + a row in `optimize-history.csv` (`RAM 69% → 58%, freed ~2,100 MB across 148 processes. Protected: chrome`). Per-process results (who actually released how much) go to `optimize-details.csv`, and the event line names the top contributors: `Top freed: chrome 850 MB, Discord 320 MB, svchost 210 MB`.
-
-Honest caveats, by design in the docs and the UI: a just-trimmed app may be briefly sluggish as it reloads what it needs (that's what exceptions are for), and freed memory partially refills over time as apps touch their data again. Optimize is quick relief before launching something heavy — if one process keeps climbing relentlessly, that's a leak, the auto-analysis will name it, and the durable fix is restarting that app.
-
-### Auto-optimize
-
-Optimize is most useful exactly when the system is too laggy to click anything — so it can fire itself. Tick **Auto-optimize at X%** in the full monitor (default trigger 80%, i.e. *below* the alert threshold, because trimming works best before pressure peaks). Guardrails, in order:
-
-1. **Cooldown** — auto-runs are at least 10 minutes apart. It can never machine-gun trim.
-2. **Self-suspend on failure** — if two consecutive auto-runs bring no lasting relief (RAM re-crosses the trigger within ~20 minutes each time), something is leaking and trimming is just adding page-fault overhead. Auto-optimize suspends itself, and the notification/event names the fastest-growing process so you know what to restart.
-3. **Auto re-arm** — once usage falls well below the trigger (or you re-tick the checkbox), it arms again.
-
-Every auto-run is logged to `optimize-history.csv` with `trigger=auto`, so you can audit exactly what it did and how much it helped.
-
-## Spike auto-analysis
-
-The monitor keeps a rolling 10-minute history of every process's memory. When usage crosses the threshold it compares "now" against ~5 minutes ago and logs:
-
-```
-===== 2026-07-25 00:41:03 | ALERT >= 85% | used 87.2% (27.4 / 31.4 GB) =====
-<top-15 process table>
-
-  Auto-analysis: RAM 62% -> 87% over the last 6 min.
-  Biggest growth in that window:
-    chrome: +2,100 MB (now 4,900 MB)
-    node: +900 MB (now 1,400 MB)
-    Code: +800 MB (now 800 MB) (started in that window)
-```
-
-The Windows notification carries the headline: *"Memory at 87% — likely cause: chrome +2.1 GB"*. Alerts re-arm after 2 minutes so you're not spammed.
-
-## Data files
-
-All created at runtime next to the script (and gitignored — they're personal):
-
-| File | Contents |
-|---|---|
-| `ram-usage.csv` | `timestamp, usedPercent, usedGB, totalGB` every 3 seconds — your usage curve |
-| `ram-spikes.log` | Timestamped process-table snapshots + growth analysis for every alert / manual snapshot |
-| `optimize-history.csv` | One row per optimize: MB freed, processes trimmed, RAM % before/after, what was protected, manual or auto trigger |
-| `optimize-details.csv` | One row per process per optimize (aggregated by name): instances, before/after/freed MB, trigger — for analyzing which apps actually release memory |
-| `optimize-exceptions.txt` | Your ticked exceptions, one process name per line |
-| `widget-position.txt` | Where you last dragged the widget |
-| `settings.txt` | Alert threshold, auto-optimize toggle and trigger level |
-
-## How it works
-
-Single-file WinForms app (`src/RamMonitor.ps1`, no compilation, no modules):
-
-- **Two refresh lanes** — a 1-second fast path reads memory counters (`Win32_OperatingSystem`) and redraws the graph/widget; a 3-second slow path does the heavier work: `Get-Process` grouped by name, list rebuild, suggestions, CSV logging, alert checks. Steady-state CPU cost is negligible.
-- **Optimize** — P/Invokes `psapi.dll!EmptyWorkingSet` per process; access-denied processes are silently skipped (that's Windows protecting them, which is fine).
-- **Hotkey** — a tiny `NativeWindow` subclass (compiled inline via `Add-Type`) registers `Ctrl+Alt+O` with `user32!RegisterHotKey` and raises an event from `WM_HOTKEY`.
-- **Graphs** — custom GDI+ `Paint` handlers (double-buffered): time-mapped area chart with grid and threshold line; no charting libraries.
-- **Widget** — borderless `TopMost` form: manual drag handling, tray icon, balloon notifications, context menu. The widget is the app host; the full monitor hides (not closes) back to it.
-- **Icon** — generated programmatically; `tools/make-icon.ps1` rebuilds `ram-monitor.ico` (8 sizes, 16–256 px) and `assets/icon.png`.
-
 ## Troubleshooting
 
-- **Widget doesn't appear** — check for a PowerShell process with `RamMonitor` in its command line; `Stop-RAM-Monitor.bat` then `Start-RAM-Monitor.bat` gives a clean restart.
+- **Widget doesn't appear** — run `Stop-RAM-Monitor.bat` then `Start-RAM-Monitor.bat` for a clean restart.
 - **Antivirus flags files** — the app legitimately does AV-suspicious-looking things (trims process memory, registers a global hotkey, runs as hidden PowerShell). Everything is plain inspectable text; add a folder exclusion if your AV complains.
 - **Scripts blocked** — the launchers pass `-ExecutionPolicy Bypass`, so no policy change is needed; if you run the .ps1 directly, use the same flag.
 - **No notifications** — Windows Focus Assist / Do Not Disturb suppresses balloon tips; the event log in the full monitor always records everything regardless.
-- **Killed it by accident?** — it can't happen from the widget (Exit is behind the right-click menu and a deliberate click), but if the process dies, logs are unaffected; just start it again.
 
 ## License
 
