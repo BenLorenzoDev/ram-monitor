@@ -11,8 +11,11 @@
 </p>
 
 <p align="center">
-  <img src="assets/widget.png" alt="RAM Monitor widget">
+  <img src="assets/widget.png" alt="Widget - all good">
+  <img src="assets/widget-high.png" alt="Widget - high usage">
+  <img src="assets/widget-critical.png" alt="Widget - critical">
 </p>
+<p align="center"><i>The widget as pressure rises: all good &rarr; high (70%+) &rarr; critical (your alert level) - the whole widget turns red and the optimize bar pulses.</i></p>
 
 ---
 
@@ -28,9 +31,21 @@ Works on any Windows 10 / 11 machine. No install, no admin rights, no internet n
 
 **To stop it:** right-click the widget → **Exit RAM Monitor**. (If it's ever unresponsive, double-click `Stop-RAM-Monitor.bat`.)
 
-**Start with Windows / pin it:** create a shortcut to
-`powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File <path>\src\RamMonitor.ps1`,
-set its icon to `ram-monitor.ico`, and drop it on your desktop or in your Startup folder (`Win+R` → `shell:startup`).
+### Prefer a real .exe?
+
+Build one locally in seconds — it uses the C# compiler that ships with Windows, nothing to install:
+
+```
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\build-exe.ps1
+```
+
+That creates **`RamMonitor.exe`** in the repo root: double-clickable, no console window, proper icon — same app. **Add an antivirus exclusion for the folder first**: an unsigned exe that starts hidden PowerShell looks exactly like a malware dropper to AV engines, which is also why the repo doesn't ship a prebuilt exe.
+
+### Start with Windows / desktop shortcut
+
+Create a shortcut to `RamMonitor.exe` (or to
+`powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File <path>\src\RamMonitor.ps1` if you skipped the exe),
+set its icon to `ram-monitor.ico`, and drop it on your desktop — or into your Startup folder (`Win+R` → `shell:startup`) to launch on login.
 
 ## What it does
 
@@ -71,6 +86,10 @@ The whole widget tints red when you cross your alert threshold.
 
 ### The full monitor
 
+<p align="center">
+  <img src="assets/monitor.png" alt="RAM Monitor full window" width="850">
+</p>
+
 Double-click the widget to open it. Two-column, Task Manager-style dark window — closing it (X) just returns you to the widget, the app keeps running.
 
 **Left column — live data:**
@@ -87,7 +106,27 @@ Double-click the widget to open it. Two-column, Task Manager-style dark window �
 - **Suggested actions** — live advice based on what is actually eating memory (browser → close tabs; dev server climbing → restart it; Docker/WSL idle → `wsl --shutdown`; antivirus scanning → leave it alone). Switches to urgent phrasing above your alert level.
 - **Alerts and events** — tall running log of every spike (with its analysis), optimize (with per-app results), snapshot, and ended process. Recent history is preloaded when you open the app.
 
+### Styles
+
+<p align="center">
+  <img src="assets/widget-calm.png" alt="Calm style widget">
+</p>
+<p align="center"><i>The Calm style: same data, delivered gently — "All good" instead of OK/CRITICAL shouting.</i></p>
+
+Pick a UI style from the **Style** dropdown (top-right of the monitor) or widget right-click → **Style**. Your choice persists.
+
+- **Midnight Glass** — dark theme with real acrylic blur-behind (the same compositor effect Task Manager uses), rounded corners, violet accent.
+- **Midnight Solid** — identical design with the glass off; guaranteed rendering on every monitor/GPU combination.
+- **Calm** — an emotionally intelligent design: low-arousal sage/teal palette, supportive verdicts (*All good / Getting busy / Attention*), warm amber guidance instead of red alarm, and a slow breathing glow instead of flashing. Same information, less stress.
+
+**Multi-monitor note:** on hybrid-GPU machines (e.g. laptop iGPU + dedicated GPU), some screens can't composite the acrylic and text may vanish inside the blur. The app handles this per screen: widget right-click → **Glass on screens** lets you tick/untick each display, and windows automatically switch between glass and solid as you drag them between screens. On dual-GPU systems the default is glass on the primary screen only.
+
 ### Optimizing RAM — what actually happens
+
+<p align="center">
+  <img src="assets/rocket.gif" alt="Optimize rocket launch sequence">
+</p>
+<p align="center"><i>Every optimize is a launch program: the rocket preps on the pad while the trim runs, then lifts off and bursts into a firework with the freed amount.</i></p>
 
 Trigger it any way you like: widget ⚡, `Ctrl+Alt+O`, right-click menu, or the monitor's button. Every time:
 
@@ -160,13 +199,12 @@ Single-file WinForms app (`src/RamMonitor.ps1`, no compilation, no modules):
 | `tools/` | Developer scripts: icon generator, optional native-exe launcher build |
 | `assets/` | Images used by this README |
 
-### Optional: build a native launcher (.exe)
-
-`tools/build-exe.ps1` compiles `tools/launcher.cs` into a small `RamMonitor.exe` using the C# compiler bundled with Windows — double-clickable, no console, proper icon. **Fair warning:** an unsigned exe that spawns hidden PowerShell matches the behavior profile of malware droppers, so most antivirus products will quarantine it unless you add a folder exclusion *first*. The `.bat` / shortcut route avoids that entirely, which is why the repo doesn't ship a prebuilt exe.
+The optional exe launcher (`tools/build-exe.ps1` + `tools/launcher.cs`) is covered in [Run it](#prefer-a-real-exe) — including why the repo ships no prebuilt binary.
 
 ## Troubleshooting
 
 - **Widget doesn't appear** — run `Stop-RAM-Monitor.bat` then `Start-RAM-Monitor.bat` for a clean restart.
+- **Text missing / window looks broken on one monitor** — that screen can't composite the acrylic glass (common with hybrid-GPU laptops). Widget right-click → **Glass on screens** → untick that screen; it renders solid there from then on. Or switch the style to **Midnight Solid**.
 - **Antivirus flags files** — the app legitimately does AV-suspicious-looking things (trims process memory, registers a global hotkey, runs as hidden PowerShell). Everything is plain inspectable text; add a folder exclusion if your AV complains.
 - **Scripts blocked** — the launchers pass `-ExecutionPolicy Bypass`, so no policy change is needed; if you run the .ps1 directly, use the same flag.
 - **No notifications** — Windows Focus Assist / Do Not Disturb suppresses balloon tips; the event log in the full monitor always records everything regardless.
