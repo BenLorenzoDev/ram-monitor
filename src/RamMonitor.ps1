@@ -279,6 +279,22 @@ $script:Themes = [ordered]@{
         GlassState = 4
         GlassNormal = HexTint 'B2281E1E'; GlassHover = HexTint 'D2281E1E'; GlassSolid = HexTint 'FF2C2426'
     }
+    # Same design without the acrylic - guaranteed rendering on every
+    # monitor/GPU combination (the compositor blur can drop GDI text on
+    # mixed-DPI or hybrid-graphics multi-monitor setups).
+    'Midnight Solid' = @{
+        Bg = C 32 32 36;      Card = C 40 40 46;    Text = C 235 235 240
+        Sub = C 165 165 175;  Border = C 70 70 80
+        HeadBg = C 52 52 60;  HeadText = C 200 200 210
+        BtnBg = C 55 55 64;   BtnHover = C 70 70 80; BtnBorder = C 84 84 96
+        Accent = C 104 78 214; AccentHover = C 122 96 232
+        GraphGrid = C 52 52 60; GraphLine = C 168 130 255; GraphFill = C 155 120 255 60
+        Axis = C 140 140 150; Status = C 140 140 150
+        WidgetBg = C 30 30 32; WidgetSub = C 150 150 155
+        BarBg = C 62 62 66;   SparkBg = C 38 38 42;  SparkLine = C 110 170 235
+        GlassState = 0
+        GlassNormal = HexTint 'FF24201E'; GlassHover = HexTint 'FF24201E'; GlassSolid = HexTint 'FF2C2426'
+    }
 }
 $script:StyleName = 'Midnight Glass'
 
@@ -1383,7 +1399,7 @@ $dragDown = {
     param($s, $e)
     if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Left) {
         $script:Drag = @{ Cursor = [System.Windows.Forms.Cursor]::Position; Form = $widget.Location }
-        Set-Glass $widget 1 $script:GlassSolid
+        if ($script:GlassState -ne 0) { Set-Glass $widget 1 $script:GlassSolid }
     }
 }
 $dragMove = {
@@ -1398,7 +1414,11 @@ $dragUp = {
     if ($script:Drag) {
         $script:Drag = $null
         "$($widget.Location.X),$($widget.Location.Y)" | Out-File $script:PosFile
-        Set-Glass $widget $script:GlassState $script:GlassHover
+        # Re-applying (not just restoring) rebuilds the acrylic on whatever
+        # monitor the widget was dropped on; the repaint restores the text.
+        Set-Glass $widget $script:GlassState $script:GlassNormal
+        $widget.Invalidate($true)
+        $widget.Update()
     }
 }
 $openFull   = { $form.Show(); $form.Activate() }
@@ -1437,6 +1457,16 @@ foreach ($c in @($widget, $lblWTitle, $lblWStatus, $lblWPct, $lblWGB, $lblWFree,
     $c.Add_MouseLeave($hoverLeave)
     $c.ContextMenuStrip = $menu
 }
+
+# Moving a window to another monitor can break the acrylic composition there
+# (text drops out of the blended surface, notably with mixed DPI or a second
+# GPU). Re-applying the accent after the move forces the compositor to
+# rebuild it for the new monitor, and a full repaint restores the text.
+$form.Add_ResizeEnd({
+    Set-Glass $form $script:GlassState $script:GlassNormal
+    $form.Invalidate($true)
+    $form.Update()
+})
 
 # Closing the full window hides it back to the widget instead of exiting
 $form.Add_FormClosing({
